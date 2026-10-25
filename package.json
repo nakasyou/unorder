@@ -15,8 +15,9 @@
     "test:watch": "vp test watch",
     "pack": "vp run -r pack",
     "build": "vp run -r pack",
-    "cli": "vp -C packages/cli exec tsx src/cli.ts",
-    "get-menu": "vpx packages/provider-saizeriya/scripts/get-all-menu.ts"
+    "cli": "vpx packages/cli/src/cli.ts",
+    "get-menu": "vpx packages/provider-saizeriya/scripts/get-all-menu.ts",
+    "mcp": "vpx packages/cli/src/cli.ts mcp"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

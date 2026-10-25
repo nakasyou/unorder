@@ -1,0 +1,29 @@
+{
+  "name": "@unorder/cli",
+  "version": "0.1.0",
+  "description": "CLI and stdio MCP server for Unorder.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakasyou/unorder.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "unorder": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "pack": "vp pack"
+  },
+  "dependencies": {
+    "@unorder/core": "workspace:*",
+    "@unorder/saizeriya": "workspace:*"
+  }
+}

@@ -12,6 +12,6 @@ export default defineConfig({
     dts: true,
     format: ['esm'],
     clean: true,
-    external: ['@unorder/core'],
+    deps: { neverBundle: ['@unorder/core'] },
   },
 })
