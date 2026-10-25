@@ -10,6 +10,9 @@ export default defineConfig({
       '@unorder/saizeriya': fileURLToPath(
         new URL('./packages/provider-saizeriya/src/index.ts', import.meta.url),
       ),
+      '@unorder/sushiro': fileURLToPath(
+        new URL('./packages/provider-sushiro/src/index.ts', import.meta.url),
+      ),
     },
   },
   fmt: {

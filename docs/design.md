@@ -169,6 +169,20 @@ The static menu is a pinned JSON copy in `packages/provider-saizeriya/data/menu.
 the default remote URL points at the `main` branch of this repository and can be
 overridden for offline use.
 
+## Sushiro specifics
+
+The Sushiro app is a Flutter client around the Sushiro CRM API. Its in-store
+ordering happens on the tablet, not in the app, so the provider exposes store
+search, queues, tickets, reservations, takeout wait times, and a dynamic menu
+instead of `cart.*` / `order.*`.
+
+Store and queue methods call the CRM JSON API. Ticket creation/cancellation uses
+the same form endpoints as the app and is marked destructive. The menu is parsed
+from the server-rendered `menu_detail` HTML for the selected CRM store id; the
+parser is a small in-repository regex parser with no runtime dependency. See
+`packages/provider-sushiro/docs/protocol.md` for confirmed versus inferred
+endpoints.
+
 ## CLI and MCP generation
 
 `describeMethods` accepts either a provider definition or a call-only instance and

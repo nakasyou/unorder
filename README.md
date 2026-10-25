@@ -2,9 +2,9 @@
 
 > [!WARNING]
 > unorder is an unofficial interoperability project. It is not affiliated with,
-> endorsed by, or supported by Saizeriya. Use it only with sessions and accounts
-> you are allowed to use, and do not use it to disrupt, overload, bypass, or
-> otherwise misuse a real restaurant service.
+> endorsed by, or supported by Saizeriya, Sushiro, or Akindo Sushiro. Use it only
+> with sessions and accounts you are allowed to use, and do not use it to
+> disrupt, overload, bypass, or otherwise misuse a real restaurant service.
 
 unorder is a UI-less, provider-independent ordering SDK. It normalizes ordering
 operations behind stable dot-separated method names, ships a CLI for scripted use,
@@ -16,10 +16,11 @@ and exposes every method to AI agents through a stdio MCP server.
 | -------------------- | ------------------------------------------------------------------------------------------------------ |
 | `@unorder/core`      | Provider-independent domain types, schemas, errors, menu helpers, typed runtime, and Proxy client.     |
 | `@unorder/saizeriya` | Unofficial Saizeriya provider, a pinned static menu snapshot, and a small dependency-free HTML parser. |
+| `@unorder/sushiro`   | Unofficial Sushiro provider for stores, queues, tickets, dynamic menus, and takeout wait times.        |
 | `@unorder/cli`       | The `unorder` binary (`run`, `mcp`, `providers`, `methods`, `--help`).                                 |
 
-Providers have no third-party runtime dependencies. The Saizeriya provider uses
-Node's standard `fetch`, filesystem APIs, and an in-repository HTML parser. Browser
+Providers have no third-party runtime dependencies. They use Node's standard
+`fetch`, filesystem APIs where needed, and in-repository parsers. Browser
 automation and Playwright are intentionally not part of this project.
 
 ## Requirements
@@ -51,6 +52,12 @@ node packages/cli/dist/cli.mjs --help
 # Static menu, no session or network required
 node packages/cli/dist/cli.mjs run saizeriya menu.list '{"limit":5}' \
   --menu-file packages/provider-saizeriya/data/menu.json --state /tmp/unorder-state.json
+
+# Read-only Sushiro store search and dynamic menu
+node packages/cli/dist/cli.mjs run sushiro x-sushiro.shop.list \
+  '{"latitude":35.68,"longitude":139.76,"numResults":3}' --state /tmp/unorder-state.json
+UNORDER_SUSHIRO_STORE_ID=874 node packages/cli/dist/cli.mjs run sushiro menu.list \
+  '{"limit":5}' --state /tmp/unorder-state.json
 ```
 
 By default, static menus are fetched from the pinned raw GitHub URL:
@@ -136,6 +143,35 @@ Calling `order.send`, `bill.get`, `receipt.get`, or `staff.call` against a live
 session has real-world effects. Tests in this repository use a local mock server
 only and never send orders to a real restaurant.
 
+## Sushiro
+
+The Sushiro app supports store search, live queues, queue tickets, advance
+reservations, a menu WebView, and takeout. It has no in-store table ordering API,
+so `@unorder/sushiro` does not expose `cart.*`, `order.*`, `bill.get`,
+`receipt.get`, or `staff.call`.
+
+```ts
+import { sushiro } from '@unorder/sushiro'
+
+const runtime = sushiro.createRuntime({ config: { storeId: '874' } })
+const menu = await runtime.call('menu.list', { query: 'サーモン', limit: 10 })
+const shops = await runtime.call('x-sushiro.shop.list', {
+  latitude: 35.681236,
+  longitude: 139.767125,
+  numResults: 5,
+})
+```
+
+Sushiro extensions include `x-sushiro.shop.list`, `x-sushiro.shop.queue`,
+`x-sushiro.ticket.status`, `x-sushiro.ticket.slots`,
+`x-sushiro.ticket.issue`, `x-sushiro.ticket.cancel`,
+`x-sushiro.ticket.enter`, and `x-sushiro.takeout.wait-time`.
+Advance reservation creation needs an authenticated account and is not
+implemented; only slot browsing is exposed. `ticket.issue`, `ticket.cancel`, and
+`ticket.enter` are real-world actions and must only be used with explicit human
+approval. See
+[packages/provider-sushiro/docs/protocol.md](packages/provider-sushiro/docs/protocol.md).
+
 ## Methods
 
 Every provider exposes a subset of:
@@ -149,7 +185,8 @@ serializes provider state through the optional `serializeState` hook and returns
 a versioned `unorder.session` envelope.
 
 Provider-specific extensions use the `x-<provider>.` namespace, for example
-`x-saizeriya.people.set`. See `unorder --help` or `unorder methods saizeriya`.
+`x-saizeriya.people.set` or `x-sushiro.ticket.slots`. See `unorder --help` or
+`unorder methods saizeriya`.
 
 ## Design
 

@@ -17,7 +17,8 @@
     "resolveJsonModule": true,
     "paths": {
       "@unorder/core": ["./packages/core/src/index.ts"],
-      "@unorder/saizeriya": ["./packages/provider-saizeriya/src/index.ts"]
+      "@unorder/saizeriya": ["./packages/provider-saizeriya/src/index.ts"],
+      "@unorder/sushiro": ["./packages/provider-sushiro/src/index.ts"]
     },
     "types": ["node"]
   },

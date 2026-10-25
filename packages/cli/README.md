@@ -28,6 +28,10 @@ Options:
 unorder run saizeriya menu.list '{"limit":5}' \
   --menu-file ./packages/provider-saizeriya/data/menu.json
 
+# Read-only Sushiro methods
+unorder run sushiro x-sushiro.shop.list '{"latitude":35.68,"longitude":139.76}'
+UNORDER_SUSHIRO_STORE_ID=874 unorder run sushiro menu.list '{"limit":5}'
+
 cat menu-query.json | unorder run saizeriya menu.list - --menu-file ./menu.json
 
 unorder run saizeriya session.open \
