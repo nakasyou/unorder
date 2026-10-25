@@ -7,7 +7,6 @@ import type {
 } from './provider'
 import type { Schema } from './schema'
 import { s } from './schema'
-import type { SessionExport } from './session'
 import type { MenuGetInput, MenuListInput, MenuListResult } from './menu'
 
 export interface SessionOpenInput {
@@ -70,7 +69,6 @@ export interface StandardMethodSignature<Input, Output> {
 export interface StandardMethods {
   'session.open': StandardMethodSignature<SessionOpenInput, Session>
   'session.close': StandardMethodSignature<CartClearInput, SessionCloseOutput>
-  'session.export': StandardMethodSignature<CartClearInput, SessionExport>
   'menu.list': StandardMethodSignature<MenuListInput, MenuListResult>
   'menu.get': StandardMethodSignature<MenuGetInput, MenuItem>
   'cart.list': StandardMethodSignature<CartListInput, Cart>
@@ -224,27 +222,6 @@ export const standardMethodSpecs = {
     output: s.object({ closed: s.boolean() }),
     session: 'optional',
     annotations: { readOnlyHint: false, destructiveHint: false },
-  },
-  'session.export': {
-    summary: 'Export the versioned session envelope.',
-    description:
-      'Returns a JSON-serializable session snapshot suitable for a state file or another process.',
-    input: emptyInput,
-    output: s.object(
-      {
-        format: s.string({ enum: ['unorder.session'] }),
-        version: s.integer({ minimum: 1, maximum: 1 }),
-        provider: s.string(),
-        stateVersion: s.integer({ minimum: 1 }),
-        createdAt: s.string(),
-        updatedAt: s.string(),
-        state: s.unknown({ description: 'Provider-specific state, or null when closed' }),
-        metadata: s.optional(s.unknown()),
-      },
-      { additionalProperties: true },
-    ),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false },
   },
   'menu.list': {
     summary: 'List menu items with filtering and paging.',

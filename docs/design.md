@@ -16,39 +16,47 @@ no UI layer.
 Methods are dot-separated names. The standard surface is declared once in
 `packages/core/src/standard.ts`:
 
-| Area    | Methods                                              |
-| ------- | ---------------------------------------------------- |
-| Session | `session.open`, `session.close`, `session.export`    |
-| Menu    | `menu.list`, `menu.get`                              |
-| Cart    | `cart.list`, `cart.add`, `cart.remove`, `cart.clear` |
-| Order   | `order.send`, `order.list` (submitted orders)        |
-| Billing | `bill.get`, `receipt.get`                            |
-| Service | `staff.call`                                         |
+| Area    | Methods                                                           |
+| ------- | ----------------------------------------------------------------- |
+| Session | `session.open`, `session.close` (plus automatic `session.export`) |
+| Menu    | `menu.list`, `menu.get`                                           |
+| Cart    | `cart.list`, `cart.add`, `cart.remove`, `cart.clear`              |
+| Order   | `order.send`, `order.list` (submitted orders)                     |
+| Billing | `bill.get`, `receipt.get`                                         |
+| Service | `staff.call`                                                      |
 
 `menu.list` was chosen over `order.list` for menu enumeration because
 `order.list` means submitted-order history, while `cart.list` means the current
 unsubmitted cart. Provider extensions use an `x-<provider>.` namespace, for example
 `x-saizeriya.people.set`.
 
-`defineProvider` captures the method map as a generic parameter. This gives
+`defineProvider` is an identity helper that captures the method map as a generic
+parameter. It does no runtime work. This gives
 `runtime.call('cart.add', { itemId: '1202' })` a typed input and output. The runtime
 also exposes an untyped `invoke(name, input)` for CLI/MCP dispatch, which validates
 the same schemas before calling the handler.
 
+`session.export` is not part of a provider's method map. Core adds it to every
+provider and descriptors, and implements it with `exportSession`. Providers only
+optionally expose `serializeState` (state to JSON data) and `validateState` /
+`migrateState` for imports.
+
 ## Provider runtime
 
-A provider definition is metadata plus a factory, not a connection:
+A provider definition is plain metadata, not a connection:
 
 - `id`, `displayName`, `description`, `version`
 - `stateVersion`, config schema, menu capability
 - methods with input/output schemas, summaries, descriptions, session requirement,
   and MCP annotations
-- optional `validateState` / `migrateState`
+- optional `serializeState` / `validateState` / `migrateState`
 
-`createRuntime` merges config, accepts an injectable `fetch` and clock, and can be
+The shared behavior lives in `createProviderRuntime` and `createProviderInstance`.
+The runtime merges config, accepts an injectable `fetch` and clock, and can be
 seeded with a `SessionExport`. Handlers receive a context with the current state,
-`setState` / `requireState`, and `exportSession`. The runtime enforces required
-sessions and validates input before dispatch:
+`setState`, and `requireState`. Session export is a core function rather than a
+handler concern. The runtime enforces required sessions and validates input before
+dispatch:
 
 - missing method → `UnsupportedError` (`unsupported`)
 - bad input → `InvalidInputError` (`invalid_input`)
@@ -58,6 +66,29 @@ sessions and validates input before dispatch:
 
 Every `UnorderError` has a stable `code` and a `toJSON()` payload, so the CLI and
 MCP server can return the same error shape.
+
+`createProviderInstance(definition)` returns a call-only object type,
+`{ call(method, input) }`. Method metadata, state, config, and the runtime are kept
+in a core-private `WeakMap`, so CLI help and MCP can introspect the instance
+without exposing those internals.
+
+## Typed Proxy client
+
+`createClient(instance)` (alias `proxyClient`) wraps a provider instance in a Proxy.
+Dot-separated method names become nested properties:
+
+```ts
+const client = createClient(createSaizeriya())
+await client.session.open({ qrUrl, peopleCount: 2 })
+await client.cart.add({ itemId: '1202', quantity: 1 })
+const cart = await client.cart.list({})
+```
+
+The client type is derived recursively from the provider's `MethodMap`, so
+`order.send` becomes `client.order.send(input): Promise<Order>`. Provider
+extensions such as `x-saizeriya.people.set` are included as bracket properties.
+Calling an unknown method still reaches the runtime and fails with
+`UnsupportedError`.
 
 ## Domain model
 
@@ -103,13 +134,23 @@ provider later.
 }
 ```
 
-The CLI stores one envelope per provider in a state file
+`exportSession(provider, state)` calls the provider's optional `serializeState`
+hook, adds `format`, `version`, `provider`, `stateVersion`, and timestamps, and
+returns the envelope. The runtime, CLI execution path, and MCP use the same core
+function. The CLI stores one envelope per provider in a state file
 (`~/.config/unorder/sessions.json` by default, overridable with `--state`). This
 makes one command = one process viable, including cookies and tokens. Providers can
 migrate older `stateVersion` values through `migrateState`. MCP keeps runtimes in
-memory.
+memory. `unorder run <provider> session.export` still works; without a stored
+session the CLI returns an `invalid_input` error envelope.
 
 ## Saizeriya specifics
+
+`createSaizeriya(config?, options?)` returns a call-only provider instance. The
+Saizeriya package exports individual functions and types (`createSaizeriya`,
+`processQR`, `openSaizeriyaState`, `createSaizeriyaClient`, menu helpers, state
+types) and keeps HTML parsing, cookie transport, and internal client navigation
+(`goToMenu`, `getState`, ...) private to the package.
 
 The Saizeriya provider ports the HTTP form flow from `pnsk-lab/saizeriya`:
 
@@ -130,7 +171,9 @@ overridden for offline use.
 
 ## CLI and MCP generation
 
-`describeMethods` returns transport-neutral descriptors. The CLI uses them for
-`--help`, `providers`, and `methods`. The MCP server maps them to `tools/list`,
-prefixing tool names with the provider id. Both paths therefore see the same input
-schemas, session requirements, and destructive-action annotations.
+`describeMethods` accepts either a provider definition or a call-only instance and
+returns transport-neutral descriptors. The CLI uses them for `--help`,
+`providers`, and `methods`. The MCP server maps them to `tools/list`, prefixing tool
+names with the provider id. Both paths therefore see the same automatic
+`session.export` method, input schemas, session requirements, and
+destructive-action annotations.

@@ -1,5 +1,14 @@
-import type { MethodAnnotations, ProviderCapabilities, SessionRequirement } from './provider'
+import type {
+  AnyMethodMap,
+  MethodAnnotations,
+  ProviderCapabilities,
+  ProviderDefinitionInput,
+  ProviderInstance,
+  SessionRequirement,
+} from './provider'
+import { getProviderCapabilities, resolveProviderDefinition } from './provider'
 import type { Schema } from './schema'
+import { sessionExportMethodSpec } from './session'
 
 export interface DescribableMethod {
   readonly name: string
@@ -41,19 +50,32 @@ export interface ProviderDescriptor {
   readonly methods: readonly MethodDescriptor[]
 }
 
+type Describable =
+  | ProviderDefinitionInput<string, unknown, unknown, AnyMethodMap>
+  | ProviderInstance<AnyMethodMap>
+
 /** Describes one method in a transport-neutral shape. */
 export const describeMethod = (
-  provider: DescribableProvider,
+  provider: Describable,
   name: string,
 ): MethodDescriptor | undefined => {
-  const method = provider.methods[name]
+  const definition = resolveProviderDefinition(provider)
+  if (name === 'session.export' && !definition.methods[name]) {
+    return {
+      provider: definition.id,
+      name,
+      fullName: `${definition.id}.${name}`,
+      ...sessionExportMethodSpec,
+    }
+  }
+  const method = definition.methods[name]
   if (!method) {
     return undefined
   }
   return {
-    provider: provider.id,
+    provider: definition.id,
     name: method.name,
-    fullName: `${provider.id}.${method.name}`,
+    fullName: `${definition.id}.${method.name}`,
     summary: method.summary,
     description: method.description,
     input: method.input,
@@ -63,26 +85,36 @@ export const describeMethod = (
   }
 }
 
-/** Describes every method a provider exposes; used by CLI help and MCP tools/list. */
-export const describeMethods = (provider: DescribableProvider): readonly MethodDescriptor[] =>
-  Object.keys(provider.methods)
-    .sort()
-    .flatMap((name) => {
-      const descriptor = describeMethod(provider, name)
-      return descriptor ? [descriptor] : []
-    })
+const namesOf = (provider: Describable): readonly string[] => {
+  const definition = resolveProviderDefinition(provider)
+  const names = Object.keys(definition.methods)
+  if (!names.includes('session.export')) {
+    names.push('session.export')
+  }
+  return names.sort()
+}
 
-export const describeProvider = (provider: DescribableProvider): ProviderDescriptor => ({
-  id: provider.id,
-  displayName: provider.displayName,
-  description: provider.description,
-  version: provider.version,
-  capabilities: provider.capabilities,
-  methods: describeMethods(provider),
-})
+/** Describes every method a provider exposes; used by CLI help and MCP tools/list. */
+export const describeMethods = (provider: Describable): readonly MethodDescriptor[] =>
+  namesOf(provider).flatMap((name) => {
+    const descriptor = describeMethod(provider, name)
+    return descriptor ? [descriptor] : []
+  })
+
+export const describeProvider = (provider: Describable): ProviderDescriptor => {
+  const definition = resolveProviderDefinition(provider)
+  return {
+    id: definition.id,
+    displayName: definition.displayName,
+    description: definition.description,
+    version: definition.version ?? '0.1.0',
+    capabilities: getProviderCapabilities(provider),
+    methods: describeMethods(provider),
+  }
+}
 
 export const describeProviders = (
-  providers: readonly DescribableProvider[],
+  providers: readonly Describable[],
 ): readonly ProviderDescriptor[] => providers.map(describeProvider)
 
 const schemaType = (schema: Schema): string => {
@@ -110,19 +142,21 @@ const schemaType = (schema: Schema): string => {
 export const formatSchema = (schema: Schema): string => schemaType(schema)
 
 /** Formats every provider and method as plain text for terminal help. */
-export const formatProviderHelp = (providers: readonly DescribableProvider[]): string => {
+export const formatProviderHelp = (providers: readonly Describable[]): string => {
   const lines: string[] = []
   lines.push('Providers:')
   for (const provider of providers) {
+    const descriptor = describeProvider(provider)
     lines.push(
-      `  ${provider.id} — ${provider.displayName} (${provider.capabilities.methods.length} methods)`,
-      `    ${provider.description}`,
+      `  ${descriptor.id} — ${descriptor.displayName} (${descriptor.capabilities.methods.length} methods)`,
+      `    ${descriptor.description}`,
     )
   }
   lines.push('', 'Methods:')
   for (const provider of providers) {
-    lines.push(`  [${provider.id}]`)
-    for (const method of describeMethods(provider)) {
+    const descriptor = describeProvider(provider)
+    lines.push(`  [${descriptor.id}]`)
+    for (const method of descriptor.methods) {
       lines.push(`    ${method.fullName}  ${method.summary}`)
       lines.push(`      input: ${formatSchema(method.input)}`)
       if (method.session === 'required') {

@@ -1,4 +1,4 @@
-import { UnsupportedError } from '@unorder/core'
+import { createProviderRuntime, InvalidInputError, UnsupportedError } from '@unorder/core'
 import type { SessionStore } from '@unorder/core'
 import type { BuiltinProvider } from './providers'
 import { findProvider } from './providers'
@@ -52,9 +52,14 @@ export const resolveProvider = (providerId: string): BuiltinProvider => {
 /** Runs one method with persisted CLI state. */
 export const executeMethod = async (options: ExecuteOptions): Promise<ExecuteResult> => {
   const provider = resolveProvider(options.providerId)
-  const existing = await options.store.load(provider.id)
-  const config = providerConfig(provider.id, options.overrides)
-  const runtime = provider.createRuntime({
+  const existing = await options.store.load(options.providerId)
+  if (options.method === 'session.export' && !existing) {
+    throw new InvalidInputError(
+      `No session is stored for provider "${options.providerId}"; open a session before exporting`,
+    )
+  }
+  const config = providerConfig(options.providerId, options.overrides)
+  const runtime = createProviderRuntime(provider, {
     ...(existing ? { session: existing } : {}),
     ...(config ? { config: config as never } : {}),
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -66,7 +71,7 @@ export const executeMethod = async (options: ExecuteOptions): Promise<ExecuteRes
     return { output, session: 'saved' }
   }
   if (existing) {
-    await options.store.clear(provider.id)
+    await options.store.clear(options.providerId)
     return { output, session: 'cleared' }
   }
   return { output, session: 'unchanged' }

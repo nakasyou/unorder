@@ -1,6 +1,11 @@
 import type { Readable, Writable } from 'node:stream'
 import { createInterface } from 'node:readline'
-import { describeMethods, serializeError } from '@unorder/core'
+import {
+  createProviderRuntime,
+  describeMethods,
+  describeProvider,
+  serializeError,
+} from '@unorder/core'
 import type { MethodDescriptor, Schema } from '@unorder/core'
 import type { ProviderConfigOverrides } from './execute'
 import { providerConfig } from './execute'
@@ -69,11 +74,17 @@ export interface McpServerOptions {
 export const startMcpServer = async (options: McpServerOptions = {}): Promise<void> => {
   const providerList = options.providers ?? defaultProviders
   const providerById = new Map<string, BuiltinProvider>(
-    providerList.map((provider) => [provider.id, provider]),
+    providerList.map((provider) => [describeProvider(provider).id, provider]),
   )
   const tools = createToolDefinitions(providerList)
   const toolMethods = describeMethodMap(providerList)
-  const runtimes = new Map<string, ReturnType<BuiltinProvider['createRuntime']>>()
+  const runtimes = new Map<
+    string,
+    {
+      invoke(name: string, input?: unknown): Promise<unknown>
+      exportSession(): unknown
+    }
+  >()
   const output = options.output ?? process.stdout
   const input = options.input ?? process.stdin
 
@@ -99,13 +110,14 @@ export const startMcpServer = async (options: McpServerOptions = {}): Promise<vo
   }
 
   const runtimeFor = (provider: BuiltinProvider) => {
-    const existing = runtimes.get(provider.id)
+    const providerId = describeProvider(provider).id
+    const existing = runtimes.get(providerId)
     if (existing) {
       return existing
     }
-    const config = providerConfig(provider.id, options.overrides)
-    const runtime = provider.createRuntime(config ? { config: config as never } : {})
-    runtimes.set(provider.id, runtime)
+    const config = providerConfig(providerId, options.overrides)
+    const runtime = createProviderRuntime(provider, config ? { config: config as never } : {})
+    runtimes.set(providerId, runtime)
     return runtime
   }
 

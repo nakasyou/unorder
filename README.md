@@ -14,7 +14,7 @@ and exposes every method to AI agents through a stdio MCP server.
 
 | Package              | Description                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------ |
-| `@unorder/core`      | Provider-independent domain types, schemas, errors, menu helpers, and the typed provider runtime.      |
+| `@unorder/core`      | Provider-independent domain types, schemas, errors, menu helpers, typed runtime, and Proxy client.     |
 | `@unorder/saizeriya` | Unofficial Saizeriya provider, a pinned static menu snapshot, and a small dependency-free HTML parser. |
 | `@unorder/cli`       | The `unorder` binary (`run`, `mcp`, `providers`, `methods`, `--help`).                                 |
 
@@ -100,28 +100,37 @@ Input schemas are generated from the same descriptors used by `unorder --help`.
 ## Library
 
 ```ts
-import { saizeriya } from '@unorder/saizeriya'
+import { createClient, createProviderRuntime } from '@unorder/core'
+import { createSaizeriya } from '@unorder/saizeriya'
 
-const runtime = saizeriya.createRuntime({
-  config: { menuFile: './packages/provider-saizeriya/data/menu.json' },
+const provider = createSaizeriya({
+  menuFile: './packages/provider-saizeriya/data/menu.json',
 })
+const client = createClient(provider)
 
-const menu = await runtime.call('menu.list', { query: 'パスタ', limit: 10 })
+const menu = await client.menu.list({ query: 'パスタ', limit: 10 })
 console.log(menu.items.map((item) => `${item.id} ${item.name}`))
 
-const session = await runtime.call('session.open', {
+const session = await client.session.open({
   qrUrl: 'https://example.com/saizeriya3/qr?table=...',
   peopleCount: 2,
 })
 
-await runtime.call('cart.add', { itemId: '1202', quantity: 1 })
-const cart = await runtime.call('cart.list', {})
+await client.cart.add({ itemId: '1202', quantity: 1 })
+const cart = await client.cart.list({})
 console.log(cart.itemCount, cart.subtotal)
 
-// Persist or move the session to another process.
+// `provider` only exposes `call`; core helpers hold runtime/session operations.
+const runtime = createProviderRuntime(provider)
 const exported = runtime.exportSession()
-const restored = saizeriya.createRuntime({ session: exported })
+const restored = createProviderRuntime(provider, { session: exported })
 ```
+
+`createSaizeriya(config)` returns a call-only provider object. `createClient`
+turns its dot-separated method names into typed nested properties, including
+provider extensions such as `client['x-saizeriya'].people.set(...)`.
+`defineProvider` is a type-only identity helper; `createProviderRuntime` and
+`createProviderInstance` contain the shared runtime behavior.
 
 Calling `order.send`, `bill.get`, `receipt.get`, or `staff.call` against a live
 session has real-world effects. Tests in this repository use a local mock server
@@ -131,9 +140,13 @@ only and never send orders to a real restaurant.
 
 Every provider exposes a subset of:
 
-`session.open`, `session.close`, `session.export`, `menu.list`, `menu.get`,
-`cart.list`, `cart.add`, `cart.remove`, `cart.clear`, `order.send`, `order.list`,
-`bill.get`, `staff.call`, `receipt.get`.
+`session.open`, `session.close`, `menu.list`, `menu.get`, `cart.list`,
+`cart.add`, `cart.remove`, `cart.clear`, `order.send`, `order.list`, `bill.get`,
+`staff.call`, `receipt.get`.
+
+`session.export` is provided automatically by core for every provider. It
+serializes provider state through the optional `serializeState` hook and returns
+a versioned `unorder.session` envelope.
 
 Provider-specific extensions use the `x-<provider>.` namespace, for example
 `x-saizeriya.people.set`. See `unorder --help` or `unorder methods saizeriya`.

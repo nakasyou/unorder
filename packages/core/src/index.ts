@@ -1,4 +1,5 @@
 export * from './brand'
+export * from './client'
 export * from './describe'
 export * from './domain'
 export * from './errors'

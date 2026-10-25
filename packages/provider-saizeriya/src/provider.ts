@@ -1,6 +1,7 @@
 import {
   brand,
   calculateCart,
+  createProviderInstance,
   defineMethod,
   defineProvider,
   defineStandardMethod,
@@ -20,6 +21,8 @@ import type {
   Order,
   OrderId,
   OrderLine,
+  ProviderCreateOptions,
+  ProviderInstance,
   Receipt,
   Session,
   SessionId,
@@ -27,7 +30,7 @@ import type {
   TableId,
   MethodMap,
 } from '@unorder/core'
-import { createSaizeriyaClient, openSaizeriyaState } from './client'
+import { createInternalSaizeriyaClient, openSaizeriyaState } from './client'
 import { findMenuItem, loadSaizeriyaMenu } from './menu'
 import type {
   AccountSummary,
@@ -242,7 +245,7 @@ const clientFor = (context: {
   if (!context.state) {
     throw new InvalidInputError('Saizeriya session is not open')
   }
-  return createSaizeriyaClient({
+  return createInternalSaizeriyaClient({
     state: context.state,
     fetch: context.fetch,
     now: context.now,
@@ -298,10 +301,6 @@ const methods = {
       ctx.setState(null)
       return { closed: true }
     },
-  ),
-  'session.export': defineStandardMethod<'session.export', SaizeriyaState, SaizeriyaProviderConfig>(
-    'session.export',
-    (ctx) => ctx.exportSession(),
   ),
   'menu.list': defineStandardMethod<'menu.list', SaizeriyaState, SaizeriyaProviderConfig>(
     'menu.list',
@@ -556,7 +555,7 @@ const methods = {
   }),
 } satisfies MethodMap<SaizeriyaState, SaizeriyaProviderConfig>
 
-export const saizeriya = defineProvider<
+const saizeriyaDefinition = defineProvider<
   'saizeriya',
   SaizeriyaState,
   SaizeriyaProviderConfig,
@@ -578,5 +577,33 @@ export const saizeriya = defineProvider<
     userAgent: s.optional(s.string()),
   }),
   validateState: validateSaizeriyaState,
+  serializeState: (state) => state,
   methods,
 })
+
+export type SaizeriyaCreateOptions = ProviderCreateOptions<SaizeriyaProviderConfig>
+
+const isCreateOptions = (
+  value: SaizeriyaProviderConfig | SaizeriyaCreateOptions,
+): value is SaizeriyaCreateOptions =>
+  'config' in value || 'fetch' in value || 'now' in value || 'session' in value
+
+/**
+ * Creates a Saizeriya provider instance. The returned object exposes only
+ * `call`; use core helpers such as `createClient` for typed nested calls.
+ *
+ * Accepts either provider config directly (`createSaizeriya({ menuFile })`) or
+ * core create options (`createSaizeriya({ config, fetch, session })`). A second
+ * argument can supply runtime options alongside a plain config.
+ */
+export const createSaizeriya = (
+  configOrOptions: SaizeriyaProviderConfig | SaizeriyaCreateOptions = {},
+  options: SaizeriyaCreateOptions = {},
+): ProviderInstance<typeof methods> => {
+  const base = isCreateOptions(configOrOptions) ? configOrOptions : { config: configOrOptions }
+  return createProviderInstance(saizeriyaDefinition, {
+    ...base,
+    ...options,
+    config: { ...base.config, ...options.config },
+  })
+}

@@ -2,15 +2,15 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vite-plus/test'
-import { ConflictError, NotFoundError } from '@unorder/core'
-import { saizeriya } from '../src/provider'
+import { ConflictError, createClient, createProviderRuntime, NotFoundError } from '@unorder/core'
+import { createSaizeriya } from '../src/index'
 import type { SaizeriyaMenuEntry, SaizeriyaProviderConfig } from '../src/types'
 import { mockMenu, MockSaizeriyaServer } from './mock-server'
 
 const createRuntime = (
   server: MockSaizeriyaServer,
   config: SaizeriyaProviderConfig = { menuItems: mockMenu },
-) => saizeriya.createRuntime({ fetch: server.fetch, config })
+) => createProviderRuntime(createSaizeriya(), { fetch: server.fetch, config })
 
 const openSession = async (
   server: MockSaizeriyaServer,
@@ -112,7 +112,7 @@ describe('saizeriya provider', () => {
     await runtime.call('cart.add', { itemId: '1202', quantity: 2 })
     const exported = runtime.exportSession()
 
-    const restored = saizeriya.createRuntime({
+    const restored = createProviderRuntime(createSaizeriya(), {
       fetch: server.fetch,
       config: { menuItems: mockMenu },
       session: exported,
@@ -157,7 +157,7 @@ describe('saizeriya provider', () => {
     await writeFile(file, JSON.stringify(mockMenu))
 
     const server = new MockSaizeriyaServer(mockMenu)
-    const fileRuntime = saizeriya.createRuntime({
+    const fileRuntime = createProviderRuntime(createSaizeriya(), {
       fetch: server.fetch,
       config: { menuFile: file },
     })
@@ -165,7 +165,7 @@ describe('saizeriya provider', () => {
     expect(fileMenu.total).toBe(3)
     expect(fileMenu.source).toMatchObject({ kind: 'static', file })
 
-    const remoteRuntime = saizeriya.createRuntime({
+    const remoteRuntime = createProviderRuntime(createSaizeriya(), {
       fetch: async () => new Response(JSON.stringify(mockMenu)),
       config: { menuUrl: 'https://example.com/menu.json' },
     })
@@ -197,12 +197,27 @@ describe('saizeriya provider', () => {
     await expect(runtime.call('cart.list', {})).resolves.toMatchObject({ itemCount: 0 })
   })
 
+  it('exposes a call-only provider object with a typed proxy client', async () => {
+    const server = new MockSaizeriyaServer(mockMenu)
+    const provider = createSaizeriya({ menuItems: mockMenu }, { fetch: server.fetch })
+    expect(Object.keys(provider)).toEqual(['call'])
+    expect('state' in provider).toBe(false)
+    expect('methods' in provider).toBe(false)
+
+    const table = server.createTable()
+    const client = createClient(provider)
+    await client.session.open({ qrUrl: server.qrUrl(table), peopleCount: 2 })
+    await client.cart.add({ itemId: '1202', quantity: 2 })
+    const cart = await client.cart.list({})
+    expect(cart.itemCount).toBe(2)
+  })
+
   it('rejects invalid input and reports unsupported methods', async () => {
     const server = new MockSaizeriyaServer(mockMenu)
     const { runtime } = await openSession(server)
     await expect(runtime.call('cart.add', { itemId: '12' })).rejects.toThrow()
     const before = runtime.exportSession()
-    const closed = saizeriya.createRuntime({ fetch: server.fetch })
+    const closed = createProviderRuntime(createSaizeriya(), { fetch: server.fetch })
     closed.importSession({ ...before, state: null })
     await expect(closed.call('order.send', {})).rejects.toThrow(/session/)
   })

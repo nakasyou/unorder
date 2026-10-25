@@ -31,17 +31,15 @@ The default remote source is:
 Configuration options:
 
 ```ts
-import { saizeriya } from '@unorder/saizeriya'
+import { createSaizeriya } from '@unorder/saizeriya'
 
-const runtime = saizeriya.createRuntime({
-  config: {
-    // Choose one of:
-    menuUrl: 'https://example.com/menu.json',
-    menuFile: './menu.json',
-    menuItems: [{ code: '1202', name: '小エビのサラダ', price: 350 }],
+const provider = createSaizeriya({
+  // Choose one of:
+  menuUrl: 'https://example.com/menu.json',
+  menuFile: './menu.json',
+  menuItems: [{ code: '1202', name: '小エビのサラダ', price: 350 }],
 
-    language: '1',
-  },
+  language: '1',
 })
 ```
 
@@ -50,19 +48,31 @@ const runtime = saizeriya.createRuntime({
 ## Usage
 
 ```ts
-const runtime = saizeriya.createRuntime({ config: { menuFile: './menu.json' } })
+import { createClient } from '@unorder/core'
+import { createSaizeriya } from '@unorder/saizeriya'
 
-const menu = await runtime.call('menu.list', { query: 'パスタ' })
-const session = await runtime.call('session.open', {
+const provider = createSaizeriya({ menuFile: './menu.json' })
+const client = createClient(provider)
+
+const menu = await client.menu.list({ query: 'パスタ' })
+const session = await client.session.open({
   qrUrl: 'https://example.com/saizeriya3/qr?table=...',
   peopleCount: 2,
 })
 
-await runtime.call('cart.add', { itemId: '1202', quantity: 1 })
-const cart = await runtime.call('cart.list', {})
+await client.cart.add({ itemId: '1202', quantity: 1 })
+const cart = await client.cart.list({})
 ```
 
-The runtime exposes the standard methods plus these Saizeriya extensions:
+`createSaizeriya(config?, options?)` returns an object that exposes only
+`call(method, input)`. State, method metadata, configuration, and the HTTP
+client remain private. Use `createClient` from `@unorder/core` for typed nested
+calls, or `createProviderRuntime` when you need `getState`, `importSession`, or
+`exportSession`. The lower-level `createSaizeriyaClient` export is the public
+HTTP client surface; navigation helpers such as `goToMenu` and `getState` are
+internal.
+
+The provider exposes the standard methods plus these Saizeriya extensions:
 
 - `x-saizeriya.people.set`
 - `x-saizeriya.item.lookup`

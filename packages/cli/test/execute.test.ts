@@ -61,6 +61,44 @@ describe('CLI execution', () => {
     })
   })
 
+  it('exports a stored session and rejects export without one', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'unorder-export-'))
+    const statePath = join(directory, 'sessions.json')
+    const store = new FileSessionStore(statePath)
+    await expect(
+      executeMethod({
+        providerId: 'saizeriya',
+        method: 'session.export',
+        input: {},
+        store,
+        overrides: { menuFile },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+
+    const server = new MockSaizeriyaServer(mockMenu)
+    const table = server.createTable()
+    const common = {
+      providerId: 'saizeriya',
+      store,
+      overrides: { menuFile },
+      fetch: server.fetch,
+    } as const
+    await executeMethod({
+      ...common,
+      method: 'session.open',
+      input: { qrUrl: server.qrUrl(table), peopleCount: 2 },
+    })
+    const exported = await executeMethod({ ...common, method: 'session.export', input: {} })
+    expect(exported.output).toMatchObject({
+      format: 'unorder.session',
+      version: 1,
+      provider: 'saizeriya',
+      stateVersion: 1,
+      state: { shopId: 525, tableNo: 51, peopleCount: 2 },
+    })
+    expect(exported.session).toBe('saved')
+  })
+
   it('rejects unknown providers', async () => {
     await expect(
       executeMethod({

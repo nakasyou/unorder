@@ -36,7 +36,13 @@ unorder run saizeriya session.open \
 
 unorder run saizeriya cart.add '{"itemId":"1202","quantity":2}' \
   --state ./.unorder/state.json
+
+unorder run saizeriya session.export '{}' --state ./.unorder/state.json
 ```
+
+`session.export` is implemented by core for every provider. It returns the
+stored versioned session envelope, and fails with an `invalid_input` error JSON
+when no session is stored for the provider.
 
 Results and errors are JSON on stdout; diagnostics are on stderr. For example an
 error exits non-zero and prints:

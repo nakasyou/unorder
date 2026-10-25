@@ -83,18 +83,14 @@ export interface SaizeriyaClientOptions {
   language?: string
 }
 
+/** Public client surface. Internal navigation and state helpers are not exposed. */
 export interface SaizeriyaClient {
-  readonly state: SaizeriyaState
-  getState(): SaizeriyaState
   setPeopleCount(count: number): Promise<SaizeriyaState>
   lookupItem(code: string): Promise<LookupItemResult>
   addItem(code: string, options?: AddItemOptions): Promise<SaizeriyaCartLine>
   removeCartItem(index: number): SaizeriyaState
   clearCart(): SaizeriyaState
   submitOrder(): Promise<SaizeriyaState>
-  goToMenu(): Promise<SaizeriyaState>
-  goToCart(): Promise<SaizeriyaState>
-  goToHistory(): Promise<SaizeriyaState>
   getAccount(): Promise<{ state: SaizeriyaState; account: AccountSummary }>
   getReceipt(): Promise<{
     state: SaizeriyaState
@@ -109,6 +105,15 @@ export interface SaizeriyaClient {
   checkLastOrder(): Promise<{ result: string; lastorder?: boolean }>
   checkMidnight(): Promise<{ result: string }>
   confirmAlcohol(): Promise<{ result: string }>
+}
+
+/** Internal client surface used by the provider implementation only. */
+interface InternalSaizeriyaClient extends SaizeriyaClient {
+  readonly state: SaizeriyaState
+  getState(): SaizeriyaState
+  goToMenu(): Promise<SaizeriyaState>
+  goToCart(): Promise<SaizeriyaState>
+  goToHistory(): Promise<SaizeriyaState>
 }
 
 export const openSaizeriyaState = async (options: {
@@ -135,7 +140,7 @@ export const openSaizeriyaState = async (options: {
   }
 
   if (options.peopleCount !== undefined) {
-    const client = createSaizeriyaClient({
+    const client = createInternalSaizeriyaClient({
       state,
       ...(options.fetch ? { fetch: options.fetch } : {}),
       ...(options.now ? { now: options.now } : {}),
@@ -146,12 +151,12 @@ export const openSaizeriyaState = async (options: {
   return state
 }
 
-export const createSaizeriyaClient = ({
+export const createInternalSaizeriyaClient = ({
   state,
   fetch: baseFetch = globalThis.fetch,
   now = () => new Date(),
   language = '1',
-}: SaizeriyaClientOptions): SaizeriyaClient => {
+}: SaizeriyaClientOptions): InternalSaizeriyaClient => {
   const fetchImpl = createCookieFetch(state.cookies, baseFetch)
   const locker = lockerFor(state)
 
@@ -456,5 +461,28 @@ export const createSaizeriyaClient = ({
     checkLastOrder,
     checkMidnight,
     confirmAlcohol,
+  }
+}
+
+/** Creates the public Saizeriya client without exposing internal navigation or state. */
+export const createSaizeriyaClient = (options: SaizeriyaClientOptions): SaizeriyaClient => {
+  const client = createInternalSaizeriyaClient(options)
+  return {
+    setPeopleCount: (count) => client.setPeopleCount(count),
+    lookupItem: (code) => client.lookupItem(code),
+    addItem: (code, options) => client.addItem(code, options),
+    removeCartItem: (index) => client.removeCartItem(index),
+    clearCart: () => client.clearCart(),
+    submitOrder: () => client.submitOrder(),
+    getAccount: () => client.getAccount(),
+    getReceipt: () => client.getReceipt(),
+    reorder: (code) => client.reorder(code),
+    call: (options) => client.call(options),
+    callStaff: () => client.callStaff(),
+    callDessert: () => client.callDessert(),
+    checkOrderStarted: () => client.checkOrderStarted(),
+    checkLastOrder: () => client.checkLastOrder(),
+    checkMidnight: () => client.checkMidnight(),
+    confirmAlcohol: () => client.confirmAlcohol(),
   }
 }
