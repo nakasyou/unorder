@@ -1,0 +1,37 @@
+{
+  "name": "@unorder/saizeriya",
+  "version": "0.1.0",
+  "description": "Unofficial Saizeriya provider for Unorder.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakasyou/unorder.git",
+    "directory": "packages/provider-saizeriya"
+  },
+  "files": [
+    "dist",
+    "data",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./menu.json": "./data/menu.json",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "pack": "vp pack"
+  },
+  "dependencies": {
+    "@unorder/core": "workspace:*"
+  }
+}
