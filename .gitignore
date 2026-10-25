@@ -1,0 +1,26 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+pnpm-debug.log*
+
+# Local state and environment
+.env
+.env.*
+!.env.example
+.unorder/
+state.json
+
+# Editor and OS files
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+.DS_Store
+
+# Generated research data
+packages/provider-saizeriya/data/menu-by-shop.json
