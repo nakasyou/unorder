@@ -1,8 +1,8 @@
 import {
+  AuthRequiredError,
   brand,
   calculateCart,
   createProviderInstance,
-  defineMethod,
   defineProvider,
   defineStandardMethod,
   InvalidInputError,
@@ -10,6 +10,7 @@ import {
   money,
   NotFoundError,
   s,
+  UnsupportedError,
 } from '@unorder/core'
 import type {
   Bill,
@@ -21,6 +22,7 @@ import type {
   Order,
   OrderId,
   OrderLine,
+  OrderValidation,
   ProviderCreateOptions,
   ProviderInstance,
   Receipt,
@@ -28,7 +30,9 @@ import type {
   SessionId,
   ShopId,
   TableId,
+  MethodContext,
   MethodMap,
+  StandardInput,
 } from '@unorder/core'
 import { createInternalSaizeriyaClient, openSaizeriyaState } from './client'
 import { findMenuItem, loadSaizeriyaMenu } from './menu'
@@ -233,7 +237,7 @@ const toSession = (state: SaizeriyaState, now: Date): Session => ({
   page: state.page,
   openedAt: state.openedAt,
   updatedAt: now.toISOString(),
-  extensions: { baseUrl: state.baseUrl },
+  raw: { baseUrl: state.baseUrl },
 })
 
 const clientFor = (context: {
@@ -263,13 +267,33 @@ const itemFromData = (data: ItemData): MenuItem => ({
   raw: data,
 })
 
-const peopleInputSchema = s.object({ peopleCount: s.integer({ minimum: 1, maximum: 99 }) })
-const itemLookupInputSchema = s.object({ itemId: s.string() })
-const checkOutputSchema = s.object({
-  result: s.string(),
-  active: s.boolean(),
-  lastorder: s.optional(s.boolean()),
-})
+const validateOrder = async (
+  ctx: MethodContext<SaizeriyaState, SaizeriyaProviderConfig>,
+  input: StandardInput<'order.validate'>,
+): Promise<OrderValidation> => {
+  const client = clientFor(ctx)
+  const [orderStarted, lastOrder, midnight] = await Promise.all([
+    client.checkOrderStarted(),
+    client.checkLastOrder(),
+    client.checkMidnight(),
+  ])
+  const checks = {
+    orderingStarted: orderStarted.result === 'OK',
+    lastOrderClosed: lastOrder.result === 'OK' || lastOrder.lastorder === true,
+    midnightCharge: midnight.result === 'OK',
+  }
+  const issues = [
+    ...(checks.orderingStarted ? [] : ['ordering_not_started']),
+    ...(checks.lastOrderClosed ? ['last_order_closed'] : []),
+    ...(checks.midnightCharge ? ['midnight_charge'] : []),
+  ]
+  return {
+    ok: issues.length === 0,
+    issues,
+    checks,
+    raw: { orderStarted, lastOrder, midnight, itemIds: input.itemIds ?? [] },
+  }
+}
 
 const methods = {
   'session.open': defineStandardMethod<'session.open', SaizeriyaState, SaizeriyaProviderConfig>(
@@ -302,6 +326,21 @@ const methods = {
       return { closed: true }
     },
   ),
+  'session.update': defineStandardMethod<'session.update', SaizeriyaState, SaizeriyaProviderConfig>(
+    'session.update',
+    async (ctx, input) => {
+      if (input.tableId !== undefined) {
+        throw new UnsupportedError(
+          'Saizeriya reads the table id from the QR URL; it cannot be changed',
+        )
+      }
+      if (input.peopleCount === undefined) {
+        throw new InvalidInputError('session.update requires peopleCount for Saizeriya')
+      }
+      const state = await clientFor(ctx).setPeopleCount(input.peopleCount)
+      return toSession(state, ctx.now())
+    },
+  ),
   'menu.list': defineStandardMethod<'menu.list', SaizeriyaState, SaizeriyaProviderConfig>(
     'menu.list',
     async (ctx, input) => {
@@ -316,13 +355,24 @@ const methods = {
   ),
   'menu.get': defineStandardMethod<'menu.get', SaizeriyaState, SaizeriyaProviderConfig>(
     'menu.get',
-    async (ctx, input) =>
-      await findMenuItem({
-        config: ctx.config,
-        fetch: ctx.fetch,
-        now: ctx.now,
-        id: input.id,
-      }),
+    async (ctx, input) => {
+      if (!input.live) {
+        return await findMenuItem({
+          config: ctx.config,
+          fetch: ctx.fetch,
+          now: ctx.now,
+          id: input.id,
+        })
+      }
+      if (!ctx.state) {
+        throw new AuthRequiredError('menu.get with live=true requires an open session')
+      }
+      const result = await clientFor(ctx).lookupItem(input.id)
+      if (result.result !== 'OK' || !result.item_data) {
+        throw new NotFoundError(`Item ${input.id} was not found`)
+      }
+      return itemFromData(result.item_data)
+    },
   ),
   'cart.list': defineStandardMethod<'cart.list', SaizeriyaState, SaizeriyaProviderConfig>(
     'cart.list',
@@ -415,144 +465,28 @@ const methods = {
       return toReceipt(result.state, result.receipt, result.account)
     },
   ),
-  'x-saizeriya.people.set': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    { peopleCount: number },
-    Session
-  >({
-    name: 'x-saizeriya.people.set',
-    summary: 'Set the party size (Saizeriya-specific).',
-    description:
-      'Changes the party size after a session is open. In a live session this may finalize or lock the table party size, so treat it as approval-required.',
-    input: peopleInputSchema,
-    output: s.unknown(),
-    session: 'required',
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const state = ctx.requireState()
-      await clientFor(ctx).setPeopleCount(input.peopleCount)
-      return toSession(state, ctx.now())
+  'order.reorder': defineStandardMethod<'order.reorder', SaizeriyaState, SaizeriyaProviderConfig>(
+    'order.reorder',
+    async (ctx, input) => {
+      const client = clientFor(ctx)
+      await client.reorder(input.itemId)
+      await client.addItem(input.itemId, {
+        ...(input.quantity === undefined ? {} : { count: input.quantity }),
+        ...(input.optionId === undefined ? {} : { modId: input.optionId }),
+        ...(input.optionQuantity === undefined ? {} : { modCount: input.optionQuantity }),
+        reorder: true,
+      })
+      return toCart(ctx.requireState())
     },
-  }),
-  'x-saizeriya.item.lookup': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    { itemId: string },
-    { found: boolean; item?: MenuItem }
-  >({
-    name: 'x-saizeriya.item.lookup',
-    summary: 'Look up a live item code (Saizeriya-specific).',
-    description:
-      'Queries the provider item endpoint for availability without adding the item to the cart.',
-    input: itemLookupInputSchema,
-    output: s.object({ found: s.boolean(), item: s.optional(s.unknown()) }),
-    session: 'required',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const result = await clientFor(ctx).lookupItem(input.itemId)
-      if (result.result !== 'OK' || !result.item_data) {
-        return { found: false }
-      }
-      return { found: true, item: itemFromData(result.item_data) }
-    },
-  }),
-  'x-saizeriya.history.reorder': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    { itemId: string },
-    Session
-  >({
-    name: 'x-saizeriya.history.reorder',
-    summary: 'Open the reorder flow for a historical item (Saizeriya-specific).',
-    description:
-      'Navigates to the menu page with the reorder action. It does not add an item or submit an order by itself.',
-    input: itemLookupInputSchema,
-    output: s.unknown(),
-    session: 'required',
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const state = ctx.requireState()
-      await clientFor(ctx).reorder(input.itemId)
-      return toSession(state, ctx.now())
-    },
-  }),
-  'x-saizeriya.check.order': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    Record<string, never>,
-    { result: string; active: boolean }
-  >({
-    name: 'x-saizeriya.check.order',
-    summary: 'Check whether ordering has started (Saizeriya-specific).',
-    description: 'Calls check_order.php and reports whether the order session is active.',
-    input: s.object({}),
-    output: checkOutputSchema,
-    session: 'required',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx) => {
-      const result = await clientFor(ctx).checkOrderStarted()
-      return { result: result.result, active: result.result === 'OK' }
-    },
-  }),
-  'x-saizeriya.check.last-order': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    Record<string, never>,
-    { result: string; active: boolean; lastorder?: boolean }
-  >({
-    name: 'x-saizeriya.check.last-order',
-    summary: 'Check the last-order state (Saizeriya-specific).',
-    description: 'Calls check_lastorder.php and reports whether normal ordering is closed.',
-    input: s.object({}),
-    output: checkOutputSchema,
-    session: 'required',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx) => {
-      const result = await clientFor(ctx).checkLastOrder()
-      return {
-        result: result.result,
-        active: result.result === 'OK',
-        ...(result.lastorder === undefined ? {} : { lastorder: result.lastorder }),
-      }
-    },
-  }),
-  'x-saizeriya.check.midnight': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    Record<string, never>,
-    { result: string; active: boolean }
-  >({
-    name: 'x-saizeriya.check.midnight',
-    summary: 'Check the midnight-charge notice (Saizeriya-specific).',
-    description: 'Calls check_midnight.php and reports whether the extra-charge notice applies.',
-    input: s.object({}),
-    output: checkOutputSchema,
-    session: 'required',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx) => {
-      const result = await clientFor(ctx).checkMidnight()
-      return { result: result.result, active: result.result === 'OK' }
-    },
-  }),
-  'x-saizeriya.alcohol.confirm': defineMethod<
-    SaizeriyaState,
-    SaizeriyaProviderConfig,
-    Record<string, never>,
-    { ok: boolean }
-  >({
-    name: 'x-saizeriya.alcohol.confirm',
-    summary: 'Acknowledge the restricted-item confirmation (Saizeriya-specific).',
-    description: 'Calls put_alcohol.php for age-restricted items.',
-    input: s.object({}),
-    output: s.object({ ok: s.boolean() }),
-    session: 'required',
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx) => {
-      const result = await clientFor(ctx).confirmAlcohol()
-      return { ok: result.result === 'OK' }
-    },
-  }),
+  ),
+  'cart.validate': defineStandardMethod<'cart.validate', SaizeriyaState, SaizeriyaProviderConfig>(
+    'cart.validate',
+    (ctx, input) => validateOrder(ctx, input),
+  ),
+  'order.validate': defineStandardMethod<'order.validate', SaizeriyaState, SaizeriyaProviderConfig>(
+    'order.validate',
+    (ctx, input) => validateOrder(ctx, input),
+  ),
 } satisfies MethodMap<SaizeriyaState, SaizeriyaProviderConfig>
 
 const saizeriyaDefinition = defineProvider<

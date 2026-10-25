@@ -8,6 +8,9 @@ export default defineConfig({
       '@unorder/saizeriya': fileURLToPath(
         new URL('../provider-saizeriya/src/index.ts', import.meta.url),
       ),
+      '@unorder/sushiro': fileURLToPath(
+        new URL('../provider-sushiro/src/index.ts', import.meta.url),
+      ),
     },
   },
   pack: {

@@ -70,7 +70,6 @@ export interface MenuItem {
   readonly source: 'static' | 'dynamic'
   /** Provider-specific payload kept for callers that need to inspect raw data. */
   readonly raw?: unknown
-  readonly extensions?: Readonly<Record<string, unknown>>
 }
 
 export interface Menu {
@@ -80,15 +79,134 @@ export interface Menu {
   readonly fetchedAt?: string
 }
 
+export interface GeoPoint {
+  readonly latitude: number
+  readonly longitude: number
+}
+
+export type ShopStatus = 'open' | 'closed' | 'temporarily_closed' | 'unknown'
+
+/** Normalized services a shop may offer. */
+export type ShopService = 'dine_in' | 'takeout' | 'queue' | 'reservation'
+
+export interface WaitEstimate {
+  readonly service?: ShopService
+  /** Provider-defined lane or seating category, such as `table` or `counter`. */
+  readonly lane?: string
+  readonly minutes?: number
+  /** Number of parties or tickets currently waiting. */
+  readonly parties?: number
+  readonly updatedAt?: string
+  readonly raw?: unknown
+}
+
+export interface OpeningHours {
+  /** ISO weekday name, such as `monday`, or a provider-defined label. */
+  readonly day?: string
+  readonly opens?: string
+  readonly closes?: string
+  readonly raw?: unknown
+}
+
 export interface Shop {
   readonly id: ShopId
   readonly name?: string
   readonly brand?: string
+  readonly address?: string
+  readonly area?: string
+  readonly location?: GeoPoint
+  /** Straight-line distance from the requested location, in meters. */
+  readonly distanceMeters?: number
+  readonly status?: ShopStatus
+  /** Original provider status label kept alongside the normalized status. */
+  readonly statusRaw?: string
+  readonly services?: readonly ShopService[]
+  /** Wait estimates by service and lane. */
+  readonly waitEstimates?: readonly WaitEstimate[]
+  readonly openingHours?: readonly OpeningHours[]
   readonly raw?: unknown
 }
 
 /** Alias kept for callers that prefer restaurant terminology. */
 export type Restaurant = Shop
+
+export interface Page<Item> {
+  readonly items: readonly Item[]
+  readonly total: number
+  readonly offset: number
+  readonly limit: number
+  readonly hasMore: boolean
+}
+
+export interface QueueLane {
+  readonly id?: string
+  readonly name?: string
+  readonly service?: ShopService
+  /** Number of parties or tickets waiting in this lane. */
+  readonly waiting?: number
+  /** Queue numbers currently shown for this lane. */
+  readonly numbers?: readonly string[]
+  readonly wait?: WaitEstimate
+  readonly raw?: unknown
+}
+
+export interface Queue {
+  readonly shopId: ShopId
+  readonly lanes: readonly QueueLane[]
+  readonly updatedAt?: string
+  readonly raw?: unknown
+}
+
+export type WaitlistStatus = 'waiting' | 'called' | 'seated' | 'cancelled' | 'expired' | 'unknown'
+
+export interface WaitlistTicket {
+  readonly id?: string
+  readonly number?: string
+  readonly shopId: ShopId
+  readonly status: WaitlistStatus
+  readonly statusRaw?: string
+  readonly partySize?: number
+  readonly service?: ShopService
+  readonly lane?: string
+  readonly estimatedWaitMinutes?: number
+  /** Position in the queue when the provider reports it. */
+  readonly position?: number
+  readonly issuedAt?: string
+  readonly raw?: unknown
+}
+
+export type ReservationStatus = 'confirmed' | 'pending' | 'cancelled' | 'expired' | 'unknown'
+
+export interface ReservationSlot {
+  readonly shopId: ShopId
+  readonly service?: ShopService
+  /** ISO 8601 local date-time without a timezone. */
+  readonly start: string
+  /** ISO 8601 local date-time without a timezone. */
+  readonly end: string
+  readonly available: boolean
+  /** Original provider availability label. */
+  readonly status?: string
+  readonly raw?: unknown
+}
+
+export interface Reservation {
+  readonly id?: string
+  readonly shopId: ShopId
+  readonly status: ReservationStatus
+  readonly statusRaw?: string
+  readonly partySize?: number
+  readonly start?: string
+  readonly end?: string
+  readonly raw?: unknown
+}
+
+export interface OrderValidation {
+  readonly ok: boolean
+  readonly issues: readonly string[]
+  readonly checks?: Readonly<Record<string, boolean>>
+  readonly raw?: unknown
+}
 
 export interface Table {
   readonly id: TableId
@@ -188,7 +306,6 @@ export interface Session {
   readonly openedAt: string
   readonly updatedAt: string
   readonly raw?: unknown
-  readonly extensions?: Readonly<Record<string, unknown>>
 }
 
 export const calculateCart = (

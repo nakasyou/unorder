@@ -99,7 +99,7 @@ describe('defineProvider', () => {
     expect(session.peopleCount).toBe(3)
     expect(runtime.getState()).toEqual({ token: 'token', count: 3 })
 
-    const exported = runtime.exportSession()
+    const exported = exportSession(provider, runtime.getState())
     expect(exported).toMatchObject({
       format: 'unorder.session',
       version: 1,
@@ -109,7 +109,11 @@ describe('defineProvider', () => {
     })
 
     const automatic = await runtime.call('session.export', {})
-    expect(automatic).toEqual(exported)
+    expect(automatic).toMatchObject({
+      provider: exported.provider,
+      stateVersion: exported.stateVersion,
+      state: exported.state,
+    })
 
     const restored = createProviderRuntime(provider, { session: exported })
     expect(restored.getState()).toEqual(runtime.getState())
@@ -122,7 +126,7 @@ describe('defineProvider', () => {
     await runtime.call('session.open', { qrUrl: 'https://example.com/qr' })
     await runtime.call('session.close', {})
     expect(runtime.isOpen()).toBe(false)
-    expect(runtime.exportSession().state).toBeNull()
+    expect(exportSession(provider, runtime.getState()).state).toBeNull()
   })
 
   it('rejects unsupported methods and invalid input', async () => {
@@ -143,7 +147,7 @@ describe('defineProvider', () => {
     const result = await runtime.call('menu.list', {})
     expectTypeOf(result).toEqualTypeOf<MenuListResult>()
     // @ts-expect-error unknown methods are not part of the method map
-    await expect(runtime.call('x-missing', {})).rejects.toBeInstanceOf(UnsupportedError)
+    await expect(runtime.call('missing.method', {})).rejects.toBeInstanceOf(UnsupportedError)
     // @ts-expect-error session.open requires qrUrl
     await expect(runtime.call('session.open', {})).rejects.toBeInstanceOf(InvalidInputError)
   })
@@ -204,7 +208,7 @@ describe('createProviderInstance', () => {
     await instance.call('session.open', { qrUrl: 'https://example.com/qr', peopleCount: 2 })
     const runtime = createProviderRuntime(instance)
     expect(runtime.getState()).toEqual({ token: 'token', count: 2 })
-    expect(runtime.exportSession().state).toEqual({ token: 'token', count: 2 })
+    expect(exportSession(instance).state).toEqual({ token: 'token', count: 2 })
   })
 })
 

@@ -1,16 +1,15 @@
 import { describe, expect, expectTypeOf, it } from 'vite-plus/test'
 import { brand } from './brand'
-import type { OrderId } from './brand'
+import type { OrderId, ShopId } from './brand'
 import { createClient, proxyClient } from './client'
 import { money } from './domain'
-import type { Order } from './domain'
+import type { Order, Shop } from './domain'
 import { UnsupportedError } from './errors'
 import type { MenuListResult } from './menu'
 import type { SessionExport } from './session'
 import { listMenuItems } from './menu'
-import { createProviderInstance, defineMethod, defineProvider } from './provider'
+import { createProviderInstance, defineProvider } from './provider'
 import type { MethodMap } from './provider'
-import { s } from './schema'
 import { defineStandardMethod } from './standard'
 import type { OrderSendInput } from './standard'
 
@@ -36,16 +35,10 @@ const methods = {
       total: money(0),
     } as Order
   }),
-  'x-test.thing.set': defineMethod<TestState, TestConfig, { value: number }, { value: number }>({
-    name: 'x-test.thing.set',
-    summary: 'Set a test value.',
-    description: 'Extension method used by the typed client tests.',
-    input: s.object({ value: s.number() }),
-    output: s.object({ value: s.number() }),
-    session: 'none',
-    annotations: { readOnlyHint: false },
-    handler: (_ctx, input) => ({ value: input.value }),
-  }),
+  'shop.get': defineStandardMethod<'shop.get', TestState, TestConfig>(
+    'shop.get',
+    (_ctx, input) => ({ id: brand<ShopId>(input.shopId), name: 'Test shop' }),
+  ),
 } satisfies MethodMap<TestState, TestConfig>
 
 const provider = defineProvider<'test', TestState, TestConfig, typeof methods>({
@@ -69,18 +62,21 @@ describe('createClient', () => {
     expectTypeOf(client.menu.list({})).toEqualTypeOf<Promise<MenuListResult>>()
     expectTypeOf(client.order.send).parameter(0).toEqualTypeOf<OrderSendInput>()
     expectTypeOf(client.order.send).returns.toEqualTypeOf<Promise<Order>>()
-    expectTypeOf(client['x-test'].thing.set).parameter(0).toEqualTypeOf<{ value: number }>()
-    expectTypeOf(client['x-test'].thing.set).returns.toEqualTypeOf<Promise<{ value: number }>>()
+    expectTypeOf(client.shop.get({ shopId: 'shop-1' })).toEqualTypeOf<Promise<Shop>>()
+    expectTypeOf(client.shop.get).returns.toEqualTypeOf<Promise<Shop>>()
     expectTypeOf(client.session.export).returns.toEqualTypeOf<Promise<SessionExport>>()
 
     await expect(client.menu.list({})).resolves.toMatchObject({ total: 0 })
-    await expect(client['x-test'].thing.set({ value: 3 })).resolves.toEqual({ value: 3 })
+    await expect(client.shop.get({ shopId: 'shop-1' })).resolves.toMatchObject({
+      id: 'shop-1',
+      name: 'Test shop',
+    })
   })
 
   it('rejects unsupported methods with UnsupportedError', async () => {
     const { client } = makeClient()
     const untyped = client as unknown as Record<string, Record<string, (input: unknown) => unknown>>
-    await expect(untyped.xMissing?.method?.({})).rejects.toBeInstanceOf(UnsupportedError)
+    await expect(untyped.missing?.method?.({})).rejects.toBeInstanceOf(UnsupportedError)
   })
 
   it('accepts a provider definition as well as an instance', async () => {

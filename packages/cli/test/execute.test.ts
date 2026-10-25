@@ -7,6 +7,7 @@ import { MemorySessionStore } from '@unorder/core'
 import { executeMethod } from '../src/execute'
 import { parseArguments } from '../src/options'
 import { FileSessionStore } from '../src/state-store'
+import { MockSushiroApi } from '../../provider-sushiro/test/mock-api'
 import { mockMenu, MockSaizeriyaServer } from '../../provider-saizeriya/test/mock-server'
 
 const menuFile = fileURLToPath(new URL('../../provider-saizeriya/data/menu.json', import.meta.url))
@@ -108,6 +109,43 @@ describe('CLI execution', () => {
         store: new MemorySessionStore(),
       }),
     ).rejects.toMatchObject({ code: 'unsupported' })
+  })
+
+  it('runs a read-only Sushiro method with the bundled provider', async () => {
+    const api = new MockSushiroApi()
+    const result = await executeMethod({
+      providerId: 'sushiro',
+      method: 'shop.list',
+      input: { ids: ['874'] },
+      store: new MemorySessionStore(),
+      fetch: api.fetch,
+    })
+    expect(result.session).toBe('unchanged')
+    expect(result.output).toMatchObject({
+      total: 1,
+      items: [{ id: '874', name: 'ヤエチカ店', brand: 'sushiro' }],
+    })
+  })
+
+  it('opens a Sushiro store session and reads its menu', async () => {
+    const api = new MockSushiroApi()
+    const store = new MemorySessionStore()
+    const common = { providerId: 'sushiro', store, fetch: api.fetch } as const
+    const session = await executeMethod({
+      ...common,
+      method: 'session.open',
+      input: { qrUrl: 'sushiroapp://store/874', peopleCount: 2 },
+    })
+    expect(session.session).toBe('saved')
+    expect(session.output).toMatchObject({ provider: 'sushiro', shop: { id: '874' } })
+
+    const menu = await executeMethod({
+      ...common,
+      method: 'menu.list',
+      input: { query: 'サーモン', limit: 1 },
+    })
+    expect(menu.output).toMatchObject({ total: 1, source: { kind: 'dynamic' } })
+    expect((menu.output as { items: { id: string }[] }).items[0]?.id).toBe('343')
   })
 
   it('keeps a Saizeriya session across separate runs', async () => {

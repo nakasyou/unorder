@@ -1,4 +1,9 @@
-import { createProviderRuntime, InvalidInputError, UnsupportedError } from '@unorder/core'
+import {
+  createProviderRuntime,
+  exportSession,
+  InvalidInputError,
+  UnsupportedError,
+} from '@unorder/core'
 import type { SessionStore } from '@unorder/core'
 import type { BuiltinProvider } from './providers'
 import { findProvider } from './providers'
@@ -28,17 +33,35 @@ export const providerConfig = (
   providerId: string,
   overrides: ProviderConfigOverrides = {},
 ): Record<string, unknown> | undefined => {
-  if (providerId !== 'saizeriya') {
-    return undefined
+  if (providerId === 'saizeriya') {
+    const menuUrl =
+      overrides.menuUrl ?? process.env.UNORDER_SAIZERIYA_MENU_URL ?? process.env.UNORDER_MENU_URL
+    const menuFile =
+      overrides.menuFile ?? process.env.UNORDER_SAIZERIYA_MENU_FILE ?? process.env.UNORDER_MENU_FILE
+    return {
+      ...(menuUrl ? { menuUrl } : {}),
+      ...(menuFile ? { menuFile } : {}),
+    }
   }
-  const menuUrl =
-    overrides.menuUrl ?? process.env.UNORDER_SAIZERIYA_MENU_URL ?? process.env.UNORDER_MENU_URL
-  const menuFile =
-    overrides.menuFile ?? process.env.UNORDER_SAIZERIYA_MENU_FILE ?? process.env.UNORDER_MENU_FILE
-  return {
-    ...(menuUrl ? { menuUrl } : {}),
-    ...(menuFile ? { menuFile } : {}),
+  if (providerId === 'sushiro') {
+    const people = process.env.UNORDER_SUSHIRO_PEOPLE
+    const peopleCount = people && /^\d+$/.test(people) ? Number.parseInt(people, 10) : undefined
+    return {
+      ...(process.env.UNORDER_SUSHIRO_STORE_ID
+        ? { storeId: process.env.UNORDER_SUSHIRO_STORE_ID }
+        : {}),
+      ...(process.env.UNORDER_SUSHIRO_REGION ? { region: process.env.UNORDER_SUSHIRO_REGION } : {}),
+      ...(process.env.UNORDER_SUSHIRO_GUID ? { guid: process.env.UNORDER_SUSHIRO_GUID } : {}),
+      ...(process.env.UNORDER_SUSHIRO_TAKEOUT_TOKEN
+        ? { takeoutToken: process.env.UNORDER_SUSHIRO_TAKEOUT_TOKEN }
+        : {}),
+      ...(process.env.UNORDER_SUSHIRO_TABLE_TYPE
+        ? { tableType: process.env.UNORDER_SUSHIRO_TABLE_TYPE }
+        : {}),
+      ...(peopleCount === undefined ? {} : { peopleCount }),
+    }
   }
+  return undefined
 }
 
 export const resolveProvider = (providerId: string): BuiltinProvider => {
@@ -67,7 +90,10 @@ export const executeMethod = async (options: ExecuteOptions): Promise<ExecuteRes
 
   const output = await runtime.invoke(options.method, options.input ?? {})
   if (runtime.isOpen()) {
-    await options.store.save(runtime.exportSession())
+    const state = runtime.getState()
+    await options.store.save(
+      exportSession(provider, state, existing ? { createdAt: existing.createdAt } : {}),
+    )
     return { output, session: 'saved' }
   }
   if (existing) {

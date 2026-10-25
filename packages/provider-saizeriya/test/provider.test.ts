@@ -2,7 +2,13 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vite-plus/test'
-import { ConflictError, createClient, createProviderRuntime, NotFoundError } from '@unorder/core'
+import {
+  ConflictError,
+  createClient,
+  createProviderRuntime,
+  exportSession,
+  NotFoundError,
+} from '@unorder/core'
 import { createSaizeriya } from '../src/index'
 import type { SaizeriyaMenuEntry, SaizeriyaProviderConfig } from '../src/types'
 import { mockMenu, MockSaizeriyaServer } from './mock-server'
@@ -51,7 +57,7 @@ describe('saizeriya provider', () => {
     expect(session.page).toBe('entry')
     expect(session.peopleCount).toBe(0)
 
-    const updated = await runtime.call('x-saizeriya.people.set', { peopleCount: 5 })
+    const updated = await runtime.call('session.update', { peopleCount: 5 })
     expect(updated.page).toBe('menu')
     expect(updated.peopleCount).toBe(5)
     expect(table.peopleCountRegistered).toBe(true)
@@ -82,6 +88,29 @@ describe('saizeriya provider', () => {
     expect(removed.lines).toMatchObject([{ itemId: '3201' }])
   })
 
+  it('validates, reorders, and looks up live item availability', async () => {
+    const server = new MockSaizeriyaServer(mockMenu)
+    const { runtime } = await openSession(server, 2)
+    await runtime.call('cart.add', { itemId: '1202' })
+
+    const validation = await runtime.call('order.validate', {})
+    expect(validation).toMatchObject({
+      ok: true,
+      issues: [],
+      checks: { orderingStarted: true, lastOrderClosed: false, midnightCharge: false },
+    })
+    await expect(runtime.call('cart.validate', {})).resolves.toMatchObject({ ok: true })
+
+    const reordered = await runtime.call('order.reorder', { itemId: '3201' })
+    expect(reordered.lines).toMatchObject([{ itemId: '1202' }, { itemId: '3201', quantity: 1 }])
+
+    const live = await runtime.call('menu.get', { id: '1202', live: true })
+    expect(live).toMatchObject({ id: '1202', name: '小ｴﾋﾞのｻﾗﾀﾞ', availability: 'available' })
+    await expect(runtime.call('menu.get', { id: '9999', live: true })).rejects.toBeInstanceOf(
+      NotFoundError,
+    )
+  })
+
   it('submits an order, lists history, and reads the bill and receipt', async () => {
     const server = new MockSaizeriyaServer(mockMenu)
     const { runtime } = await openSession(server, 2)
@@ -110,16 +139,17 @@ describe('saizeriya provider', () => {
     const server = new MockSaizeriyaServer(mockMenu)
     const { runtime } = await openSession(server, 2)
     await runtime.call('cart.add', { itemId: '1202', quantity: 2 })
-    const exported = runtime.exportSession()
+    const exported = exportSession(createSaizeriya(), runtime.getState())
 
-    const restored = createProviderRuntime(createSaizeriya(), {
+    const created = createSaizeriya()
+    const restored = createProviderRuntime(created, {
       fetch: server.fetch,
       config: { menuItems: mockMenu },
       session: exported,
     })
     await expect(restored.call('cart.list', {})).resolves.toMatchObject({ itemCount: 2 })
     await restored.call('cart.add', { itemId: '3201' })
-    expect(restored.exportSession().state).toMatchObject({
+    expect(exportSession(created, restored.getState()).state).toMatchObject({
       shopId: 525,
       tableNo: 51,
       peopleCount: 2,
@@ -216,7 +246,7 @@ describe('saizeriya provider', () => {
     const server = new MockSaizeriyaServer(mockMenu)
     const { runtime } = await openSession(server)
     await expect(runtime.call('cart.add', { itemId: '12' })).rejects.toThrow()
-    const before = runtime.exportSession()
+    const before = exportSession(createSaizeriya(), runtime.getState())
     const closed = createProviderRuntime(createSaizeriya(), { fetch: server.fetch })
     closed.importSession({ ...before, state: null })
     await expect(closed.call('order.send', {})).rejects.toThrow(/session/)

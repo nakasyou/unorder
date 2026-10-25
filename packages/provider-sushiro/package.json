@@ -1,0 +1,36 @@
+{
+  "name": "@unorder/sushiro",
+  "version": "0.1.0",
+  "description": "Unofficial Sushiro provider for Unorder.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakasyou/unorder.git",
+    "directory": "packages/provider-sushiro"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "pack": "vp pack"
+  },
+  "dependencies": {
+    "@unorder/core": "workspace:*"
+  }
+}

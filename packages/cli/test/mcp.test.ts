@@ -1,7 +1,12 @@
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vite-plus/test'
+import { describeMethods } from '@unorder/core'
 import { createToolDefinitions, startMcpServer } from '../src/mcp'
+import { providers } from '../src/providers'
+
+const expectedToolCount = () =>
+  providers.reduce((total, provider) => total + describeMethods(provider).length, 0)
 
 const menuFile = fileURLToPath(new URL('../../provider-saizeriya/data/menu.json', import.meta.url))
 
@@ -28,8 +33,9 @@ const runMcp = async (messages: readonly unknown[]) => {
 describe('MCP server', () => {
   it('generates one tool per provider method', () => {
     const tools = createToolDefinitions()
-    expect(tools).toHaveLength(21)
+    expect(tools).toHaveLength(expectedToolCount())
     expect(tools.map((tool) => tool.name)).toContain('saizeriya.order.send')
+    expect(tools.map((tool) => tool.name)).toContain('sushiro.menu.list')
     expect(tools.find((tool) => tool.name === 'saizeriya.menu.list')?.inputSchema).toMatchObject({
       type: 'object',
       properties: { query: { type: 'string' } },
@@ -68,7 +74,7 @@ describe('MCP server', () => {
 
     const list = messages.find((message) => message.id === 2)
     const listResult = list?.result as { tools: { name: string }[] } | undefined
-    expect(listResult?.tools).toHaveLength(21)
+    expect(listResult?.tools).toHaveLength(expectedToolCount())
 
     const call = messages.find((message) => message.id === 3)
     const callResult = call?.result as { content: { text: string }[] } | undefined
