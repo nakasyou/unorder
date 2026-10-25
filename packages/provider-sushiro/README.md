@@ -7,17 +7,18 @@ Unofficial, unaffiliated Sushiro provider for unorder.
 > or Akindo Sushiro. It is an unofficial interoperability project built from a
 > public APK for personal use with sessions and stores you are allowed to use.
 > Do not use it to disrupt, overload, bypass, or misuse a real restaurant
-> service, and do not send ticket or reservation requests without explicit
+> service, and do not send waitlist or reservation requests without explicit
 > human approval.
 
 ## Features
 
-- Store search by location, exact store ids, or the full store list
-- Current wait minutes, waiting groups, and ticket/reservation availability
-- Live queue groups per store
-- Anonymous ticket status, queue tickets, reservations, and paper-ticket entry
+- Shop search by location, exact ids, or the full list
+- Normalized address, geo point, distance, status, services, and wait estimates
+  (including takeout pickup waits)
+- Live queue lanes per shop
+- Anonymous ticket status, waitlist join/cancel, and paper-ticket registration
 - Server-rendered menu parsing (dynamic, per store)
-- Takeout pickup wait times
+- Reservation slot browsing and reservation records
 - No third-party runtime dependencies (only `@unorder/core` and Node/Web APIs)
 - Injectable `fetch` and `now` for tests
 
@@ -28,75 +29,77 @@ methods are informational only.
 ## Usage
 
 ```ts
-import { sushiro } from '@unorder/sushiro'
-
-const runtime = sushiro.createRuntime({
-  config: { storeId: '874', guid: crypto.randomUUID(), peopleCount: 2 },
-})
-
-const shops = await runtime.call('x-sushiro.shop.list', {
-  latitude: 35.681236,
-  longitude: 139.767125,
-  numResults: 5,
-})
-console.log(shops.items.map((shop) => `${shop.id} ${shop.name} ~${shop.waitMinutes}分`))
-
-const menu = await runtime.call('menu.list', { query: 'サーモン', limit: 10 })
-console.log(menu.items.map((item) => `${item.id} ${item.name}`))
-
-const slots = await runtime.call('x-sushiro.ticket.slots', {
-  date: '2026-10-25',
-  availableOnly: true,
-})
-```
-
-`createSushiro(config?, options?)` returns a call-only instance:
-
-```ts
+import { createClient, exportSession } from '@unorder/core'
 import { createSushiro } from '@unorder/sushiro'
 
-const client = createSushiro({ storeId: '874' })
-const { items } = await client.call('x-sushiro.takeout.wait-time', {})
+const provider = createSushiro({ storeId: '874', peopleCount: 2 })
+const client = createClient(provider)
+
+const shops = await client.shop.list({
+  near: { latitude: 35.681236, longitude: 139.767125 },
+  limit: 5,
+})
+console.log(shops.items.map((shop) => `${shop.id} ${shop.name}`))
+
+const menu = await client.menu.list({ query: 'サーモン', limit: 10 })
+const queue = await client.queue.get({ shopId: '874' })
+
+// Real-world action: require explicit human approval.
+const ticket = await client.waitlist.join({ partySize: 2 })
+
+const exported = exportSession(provider)
 ```
+
+`createSushiro(config?, options?)` returns a call-only instance. The returned
+object exposes only `call(method, input)`; metadata and serialization stay in core
+helpers. It accepts either provider config directly (`createSushiro({ storeId })`)
+or core create options (`createSushiro({ config, fetch, session })`).
 
 ### Sessions
 
-`session.open` selects a store and creates or restores the local GUID. It does
-not create a ticket. Pass a deep link or a URL containing a numeric **CRM** store
-id (the id returned by `x-sushiro.shop.list`), not the older web shop id:
+`session.open` selects a shop and creates or restores the local GUID. It does not
+create a ticket. Pass a deep link or a URL containing a numeric **CRM** store id
+(the id returned by `shop.list` / `shop.get`), not the older web shop id:
 
 ```ts
-await runtime.call('session.open', {
+await client.session.open({
   qrUrl: 'sushiroapp://store/874',
   peopleCount: 2,
 })
 ```
 
-The exported session contains `guid`, `region`, `tableType`, and the selected
-store. Use the same exported state to check ticket status in another process.
+`session.update` changes the party size or records a local table label. The
+exported session contains the GUID and selected shop/table in provider state. Use
+`exportSession(provider)` from core to write it to another process.
 
-## Methods
+## Standard methods
 
-Standard:
-
-- `session.open`, `session.close`, `session.export`
+- `session.open`, `session.update`, `session.close`, `session.export`
 - `menu.list`, `menu.get`
+- `shop.list`, `shop.get`
+- `queue.get`
+- `waitlist.status`, `waitlist.join` — **real ticket, destructive**
+- `waitlist.cancel` — **real cancellation, destructive**
+- `reservation.slots`, `reservation.list`
 
-Sushiro extensions:
+There is no `x-sushiro.*` extension namespace. The app-specific concepts map as
+follows:
 
-- `x-sushiro.shop.list`
-- `x-sushiro.shop.get`
-- `x-sushiro.shop.queue`
-- `x-sushiro.shop.waiting`
-- `x-sushiro.ticket.status`
-- `x-sushiro.ticket.slots`
-- `x-sushiro.ticket.check-in-count`
-- `x-sushiro.ticket.issue` — **real ticket, destructive**
-- `x-sushiro.ticket.cancel` — **real cancellation, destructive**
-- `x-sushiro.ticket.enter` — **registers a store-issued ticket, destructive**
-- `x-sushiro.takeout.wait-time`
-- `x-sushiro.app.config`
-- `x-sushiro.table.set` — local-only label for scripts
+| App feature                     | Standard surface                               |
+| ------------------------------- | ---------------------------------------------- |
+| Store search / status           | `shop.list`, `shop.get`                        |
+| Group queues                    | `queue.get`                                    |
+| Takeout wait                    | `Shop.waitEstimates` with `service: 'takeout'` |
+| `今から行く` ticket             | `waitlist.join`                                |
+| Store-issued paper ticket       | `waitlist.join` with `number`                  |
+| Ticket status                   | `waitlist.status`                              |
+| Ticket cancellation             | `waitlist.cancel`                              |
+| `後から行く` slot browsing      | `reservation.slots`                            |
+| Reservations attached to a GUID | `reservation.list`                             |
+| Local table label               | `session.update`                               |
+
+Display-only waiting configuration, app config, and per-ticket check-in counts are
+private provider details and are not exposed as methods.
 
 ## Configuration
 

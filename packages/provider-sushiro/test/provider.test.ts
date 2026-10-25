@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { InvalidInputError, NotFoundError } from '@unorder/core'
+import {
+  createProviderRuntime,
+  exportSession,
+  InvalidInputError,
+  NotFoundError,
+  UnsupportedError,
+} from '@unorder/core'
 import { createSushiro, sushiro } from '../src/provider'
 import { MockSushiroApi, rawStore } from './mock-api'
 
 const GUID = '11111111-2222-4333-8444-555555555555'
 
 const createRuntime = (api: MockSushiroApi, config = {}) =>
-  sushiro.createRuntime({
+  createProviderRuntime(sushiro, {
     fetch: api.fetch,
     config: { guid: GUID, ...config },
   })
@@ -24,7 +30,7 @@ describe('sushiro provider', () => {
       shop: { id: '874', name: 'ヤエチカ店', brand: 'sushiro' },
       peopleCount: 3,
       page: 'store',
-      extensions: { guid: GUID, region: 'ja', tableType: 'T' },
+      raw: { region: 'ja', tableType: 'T' },
     })
     expect(runtime.getState()).toMatchObject({ storeId: '874', guid: GUID, peopleCount: 3 })
     expect(api.requestsTo('/api/2.0/info/store')[0]?.url).toContain('storeid=874')
@@ -80,118 +86,138 @@ describe('sushiro provider', () => {
     await expect(runtime.call('menu.list', {})).rejects.toBeInstanceOf(InvalidInputError)
   })
 
-  it('searches stores by location, ids, and the full list', async () => {
+  it('searches shops by location, ids, and the full list', async () => {
     const api = new MockSushiroApi()
     const runtime = createRuntime(api)
 
-    const nearby = await runtime.call('x-sushiro.shop.list', {
-      latitude: 35.68,
-      longitude: 139.76,
-      numResults: 2,
+    const nearby = await runtime.call('shop.list', {
+      near: { latitude: 35.68, longitude: 139.76 },
+      limit: 2,
       query: '有楽町',
     })
     expect(nearby.total).toBe(1)
     expect(nearby.items[0]).toMatchObject({
       id: '858',
       name: '有楽町店',
-      waitMinutes: 145,
-      waitingGroups: 67,
-      distanceKm: 0.8,
       brand: 'sushiro',
+      status: 'open',
+      statusRaw: 'OPEN',
+      distanceMeters: 800,
+      location: { latitude: 35.675413, longitude: 139.76285 },
     })
+    expect(nearby.items[0]?.waitEstimates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ service: 'dine_in', minutes: 145, parties: 67 }),
+        expect.objectContaining({ service: 'takeout', minutes: 15 }),
+      ]),
+    )
 
-    const byId = await runtime.call('x-sushiro.shop.list', { storeIds: ['874', '999'] })
+    const byId = await runtime.call('shop.list', { ids: ['874', '999'] })
     expect(byId.total).toBe(1)
     expect(byId.items[0]?.id).toBe('874')
 
-    const all = await runtime.call('x-sushiro.shop.list', { limit: 1 })
+    const all = await runtime.call('shop.list', { limit: 1 })
     expect(all.total).toBe(2)
     expect(all.items).toHaveLength(1)
     const listRequest = api.requestsTo('/api/2.0/info/storelist').at(-1)
     expect(listRequest?.url).toContain(`guid=${GUID}`)
+
+    const radius = await runtime.call('shop.list', {
+      near: { latitude: 35.68, longitude: 139.76, radiusMeters: 500 },
+      limit: 10,
+    })
+    expect(radius.total).toBe(1)
+    expect(radius.items.map((shop) => shop.id)).toEqual(['874'])
   })
 
-  it('reads store queues and waiting configuration', async () => {
+  it('reads shops, queue lanes, and wait estimates', async () => {
     const api = new MockSushiroApi()
     const runtime = createRuntime(api)
 
-    const store = await runtime.call('x-sushiro.shop.get', { storeId: '874' })
-    expect(store).toMatchObject({ id: '874', status: 'OPEN', requiresTicketLogin: true })
-
-    const queue = await runtime.call('x-sushiro.shop.queue', { storeId: '874' })
-    expect(queue).toMatchObject({
-      storeId: '874',
-      storeQueue: ['544', '547'],
-      mixedQueue: ['544', '547'],
-      separateQueue: 0,
+    const store = await runtime.call('shop.get', { shopId: '874' })
+    expect(store).toMatchObject({
+      id: '874',
+      status: 'open',
+      statusRaw: 'OPEN',
+      services: expect.arrayContaining(['dine_in', 'queue', 'reservation', 'takeout']),
     })
+    expect(store.waitEstimates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ service: 'dine_in', minutes: 120, parties: 79 }),
+        expect.objectContaining({ service: 'takeout', minutes: 15 }),
+      ]),
+    )
+    const takeoutRequest = api.requestsTo('/sushipass/api/estimatedReceivingTime')[0]
+    expect(takeoutRequest?.headers.get('authorization')).toBeTruthy()
 
-    const waiting = await runtime.call('x-sushiro.shop.waiting', { storeIds: ['874', '858'] })
-    expect(waiting.configs).toMatchObject([
-      { storeId: '874', top: true, ticket: true },
-      { storeId: '858', top: false, ticketing: true },
-    ])
+    const queue = await runtime.call('queue.get', { shopId: '874' })
+    expect(queue).toMatchObject({
+      shopId: '874',
+      lanes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'table',
+          numbers: ['544', '547'],
+          waiting: 2,
+        }),
+        expect.objectContaining({ id: 'booth', numbers: ['544'] }),
+        expect.objectContaining({ id: 'reservation', numbers: ['7300'] }),
+      ]),
+    })
   })
 
-  it('reads ticket status, slots, and check-in counts', async () => {
+  it('reads waitlist tickets, reservations, and slots', async () => {
     const api = new MockSushiroApi()
     const runtime = createRuntime(api, { storeId: '874' })
 
-    const status = await runtime.call('x-sushiro.ticket.status', {})
+    const status = await runtime.call('waitlist.status', {})
     expect(status.tickets).toMatchObject([
-      { storeId: '874', number: '053', adults: 2, waitMinutes: 30, status: 'WAITING' },
+      {
+        id: '418677667',
+        shopId: '874',
+        number: '053',
+        partySize: 2,
+        estimatedWaitMinutes: 30,
+        status: 'waiting',
+        statusRaw: 'WAITING',
+        lane: 'table',
+      },
     ])
-    expect(status.localTickets).toEqual([])
+    expect(status.tickets).toHaveLength(1)
+    expect(await runtime.call('waitlist.status', { ticketId: 'nope' })).toMatchObject({
+      tickets: [],
+    })
 
-    const slots = await runtime.call('x-sushiro.ticket.slots', {
-      peopleCount: 2,
+    const slots = await runtime.call('reservation.slots', {
+      partySize: 2,
       date: '2026-10-25',
       availableOnly: true,
     })
-    expect(slots).toMatchObject({ storeId: '874', peopleCount: 2, tableType: 'T', total: 1 })
+    expect(slots).toMatchObject({ total: 1, offset: 0, limit: 200, hasMore: false })
     expect(slots.items[0]).toMatchObject({
-      date: '20261025',
-      start: '184500',
-      availability: 'AVAILABLE',
+      shopId: '874',
+      start: '2026-10-25T18:45:00',
+      end: '2026-10-25T19:00:00',
+      status: 'AVAILABLE',
       available: true,
     })
     expect(api.requestsTo('/api/2.0/info/reservationtimeslots')[0]?.url).toContain('numpersons=2')
 
-    await expect(
-      runtime.call('x-sushiro.ticket.check-in-count', {
-        storeId: '874',
-        ticketNumber: '544',
-      }),
-    ).resolves.toBe(3)
+    const reservations = await runtime.call('reservation.list', {})
+    expect(reservations.reservations).toEqual([])
   })
 
-  it('reads takeout wait times with the bearer token', async () => {
-    const api = new MockSushiroApi()
-    const runtime = createRuntime(api, {
-      storeId: '874',
-      takeoutToken: 'test-token',
-    })
-
-    const single = await runtime.call('x-sushiro.takeout.wait-time', {})
-    expect(single.items).toEqual([{ storeId: '874', minutes: 15, raw: expect.anything() }])
-    const singleRequest = api.requestsTo('/sushipass/api/estimatedReceivingTime')[0]
-    expect(singleRequest?.headers.get('authorization')).toBe('Bearer test-token')
-
-    const multiple = await runtime.call('x-sushiro.takeout.wait-time', {
-      storeIds: ['874', '858'],
-    })
-    expect(multiple.items.map((item) => (item as { storeId: string }).storeId)).toEqual([
-      '874',
-      '858',
-    ])
-  })
-
-  it('builds ticket side-effect requests without contacting a real store', async () => {
+  it('creates and cancels real waitlist requests without contacting a real store', async () => {
     const api = new MockSushiroApi()
     const runtime = createRuntime(api, { storeId: '874', peopleCount: 2 })
 
-    const issued = await runtime.call('x-sushiro.ticket.issue', {})
-    expect(issued).toMatchObject({ ok: true, status: 'SUCCESS', ticket: { number: '054' } })
+    const issued = await runtime.call('waitlist.join', {})
+    expect(issued).toMatchObject({
+      shopId: '874',
+      number: '054',
+      status: 'waiting',
+      partySize: 2,
+      lane: 'table',
+    })
     const issueRequest = api.requestsTo('/api/2.0/remote/newticket')[0]
     expect(issueRequest?.method).toBe('POST')
     expect(issueRequest?.body).toContain('storeid=874')
@@ -200,29 +226,36 @@ describe('sushiro provider', () => {
     expect(issueRequest?.body).toContain('tabletype=T')
     expect(issueRequest?.body).toContain(`guid=${GUID}`)
 
-    const cancelled = await runtime.call('x-sushiro.ticket.cancel', {})
-    expect(cancelled).toMatchObject({ ok: true, status: 'SUCCESS' })
-    expect(api.requestsTo('/api/2.0/remote/cancel')[0]?.body).toBe(`guid=${GUID}&region=ja`)
-
-    const entered = await runtime.call('x-sushiro.ticket.enter', { ticketNumber: '053' })
-    expect(entered).toMatchObject({ ok: true, status: 'SUCCESS' })
+    const registered = await runtime.call('waitlist.join', { number: '053' })
+    expect(registered).toMatchObject({ shopId: '874', number: '053', status: 'waiting' })
     const enterRequest = api.requestsTo('/api/2.0/remote/watchticket')[0]
     expect(enterRequest?.method).toBe('PUT')
     expect(enterRequest?.body).toContain('ticketnum=053')
+
+    const cancelled = await runtime.call('waitlist.cancel', {})
+    expect(cancelled).toMatchObject({ cancelled: true })
+    expect(api.requestsTo('/api/2.0/remote/cancel')[0]?.body).toBe(`guid=${GUID}&region=ja`)
   })
 
-  it('exports and restores state, including a local table label', async () => {
+  it('updates and restores session state, including a local table label', async () => {
     const api = new MockSushiroApi()
     const runtime = createRuntime(api)
     await runtime.call('session.open', { qrUrl: 'sushiroapp://store/874', peopleCount: 2 })
-    const withTable = await runtime.call('x-sushiro.table.set', { tableId: 'A-12' })
-    expect(withTable.table).toEqual({ id: 'A-12' })
+    const updated = await runtime.call('session.update', {
+      peopleCount: 3,
+      tableId: 'A-12',
+    })
+    expect(updated).toMatchObject({
+      peopleCount: 3,
+      table: { id: 'A-12' },
+    })
 
-    const exported = runtime.exportSession()
-    const restored = sushiro.createRuntime({ fetch: api.fetch, session: exported })
+    const exported = exportSession(sushiro, runtime.getState())
+    const restored = createProviderRuntime(sushiro, { fetch: api.fetch, session: exported })
     expect(restored.getState()).toMatchObject({
       storeId: '874',
       tableId: 'A-12',
+      peopleCount: 3,
       guid: GUID,
     })
     await expect(restored.call('session.export', {})).resolves.toMatchObject({
@@ -231,20 +264,15 @@ describe('sushiro provider', () => {
     })
   })
 
-  it('creates a call-only instance', async () => {
+  it('creates a call-only instance and exposes standard capabilities', async () => {
     const api = new MockSushiroApi()
     const client = createSushiro({ guid: GUID, storeId: '874' }, { fetch: api.fetch })
-    const shops = await client.call('x-sushiro.shop.list', { storeIds: ['874'] })
+    const shops = await client.call('shop.list', { ids: ['874'] })
     expect(shops.total).toBe(1)
     expect('createRuntime' in client).toBe(false)
-  })
-
-  it('reads the public app configuration', async () => {
-    const api = new MockSushiroApi()
-    const runtime = createRuntime(api)
-    await expect(runtime.call('x-sushiro.app.config', {})).resolves.toMatchObject({
-      android_mobile_app_version_force: '60600',
-    })
+    await expect(
+      (client.call as (name: string, input?: unknown) => Promise<unknown>)('cart.list', {}),
+    ).rejects.toBeInstanceOf(UnsupportedError)
   })
 
   it('reports the confirmed store shape for normalization', () => {

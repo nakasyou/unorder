@@ -12,9 +12,9 @@ Unofficial Saizeriya provider for unorder.
   session id, party size, cart, submitted history)
 - Static menu listing from a pinned JSON snapshot, a URL, a local file, or
   injected entries
-- Cart add/remove/clear
-- Order submission, submitted-order history, bill/account summary, receipt data,
-  staff calls, and Saizeriya-specific checks
+- Cart add/remove/clear and pre-submission validation
+- Order submission, submitted-order history, reorder, bill/account summary,
+  receipt data, staff calls, and provider-neutral order checks
 - No third-party runtime dependencies (only `@unorder/core` and Node standard APIs)
 - An in-repository HTML parser, so no `node-html-parser`
 
@@ -48,7 +48,7 @@ const provider = createSaizeriya({
 ## Usage
 
 ```ts
-import { createClient } from '@unorder/core'
+import { createClient, exportSession } from '@unorder/core'
 import { createSaizeriya } from '@unorder/saizeriya'
 
 const provider = createSaizeriya({ menuFile: './menu.json' })
@@ -60,27 +60,35 @@ const session = await client.session.open({
   peopleCount: 2,
 })
 
+await client.session.update({ peopleCount: 3 })
 await client.cart.add({ itemId: '1202', quantity: 1 })
+const validation = await client.order.validate({})
 const cart = await client.cart.list({})
+const exported = exportSession(provider)
 ```
 
 `createSaizeriya(config?, options?)` returns an object that exposes only
 `call(method, input)`. State, method metadata, configuration, and the HTTP
 client remain private. Use `createClient` from `@unorder/core` for typed nested
-calls, or `createProviderRuntime` when you need `getState`, `importSession`, or
-`exportSession`. The lower-level `createSaizeriyaClient` export is the public
-HTTP client surface; navigation helpers such as `goToMenu` and `getState` are
-internal.
+calls, or `createProviderRuntime` when you need `getState` or `importSession`.
+The lower-level `createSaizeriyaClient` export is the public HTTP client surface;
+navigation helpers such as `goToMenu` and `getState` are internal.
 
-The provider exposes the standard methods plus these Saizeriya extensions:
+## Standard methods
 
-- `x-saizeriya.people.set`
-- `x-saizeriya.item.lookup`
-- `x-saizeriya.history.reorder`
-- `x-saizeriya.check.order`
-- `x-saizeriya.check.last-order`
-- `x-saizeriya.check.midnight`
-- `x-saizeriya.alcohol.confirm`
+The provider implements the standard session, menu, cart, order, billing, and
+service methods. Relevant details:
+
+- `session.update` changes the party size after the session is open.
+- `menu.get` with `live: true` queries live item availability; without it, the
+  method reads the configured menu snapshot.
+- `order.reorder` re-adds a previously ordered item to the unsubmitted cart.
+- `cart.validate` and `order.validate` check ordering, last-order, and
+  midnight-charge state without submitting anything.
+- Restricted-item (alcohol) confirmation is handled privately by the provider and
+  is not exposed as a provider-specific method.
+
+There is no `x-saizeriya.*` extension namespace.
 
 ## Not ported
 

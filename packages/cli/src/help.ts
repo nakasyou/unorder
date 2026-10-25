@@ -19,7 +19,7 @@ Run examples:
   unorder run saizeriya menu.list '{"limit":20}' --menu-file ./menu.json
   unorder run saizeriya session.open '{"qrUrl":"https://example.com/qr","peopleCount":2}'
   unorder run saizeriya cart.add '{"itemId":"1202","quantity":2}'
-  unorder run sushiro x-sushiro.shop.list '{"latitude":35.68,"longitude":139.76,"numResults":3}'
+  unorder run sushiro shop.list '{"near":{"latitude":35.68,"longitude":139.76},"limit":3}'
   unorder run sushiro menu.list '{"query":"サーモン"}'
 
 Options:
@@ -43,8 +43,8 @@ Environment:
 JSON results are written to stdout. Errors are written to stdout as
 {"error":{"code","message"}} and exit with a non-zero status. Diagnostics go to stderr.
 Actions such as order.send, bill.get, receipt.get, and staff.call affect a real
-restaurant when used against a live session. Sushiro ticket.issue, ticket.cancel,
-and ticket.enter are also real-world actions. Review each method before running it.
+restaurant when used against a live session. waitlist.join and waitlist.cancel are
+also real-world actions. Review each method before running it.
 
 ${formatProviderHelp(asDescribableProviders())}
 `

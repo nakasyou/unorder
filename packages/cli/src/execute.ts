@@ -1,4 +1,9 @@
-import { createProviderRuntime, InvalidInputError, UnsupportedError } from '@unorder/core'
+import {
+  createProviderRuntime,
+  exportSession,
+  InvalidInputError,
+  UnsupportedError,
+} from '@unorder/core'
 import type { SessionStore } from '@unorder/core'
 import type { BuiltinProvider } from './providers'
 import { findProvider } from './providers'
@@ -85,7 +90,10 @@ export const executeMethod = async (options: ExecuteOptions): Promise<ExecuteRes
 
   const output = await runtime.invoke(options.method, options.input ?? {})
   if (runtime.isOpen()) {
-    await options.store.save(runtime.exportSession())
+    const state = runtime.getState()
+    await options.store.save(
+      exportSession(provider, state, existing ? { createdAt: existing.createdAt } : {}),
+    )
     return { output, session: 'saved' }
   }
   if (existing) {

@@ -1,4 +1,12 @@
-import type { Shop } from '@unorder/core'
+import type {
+  GeoPoint,
+  Queue,
+  QueueLane,
+  Shop,
+  ShopService,
+  ShopStatus,
+  WaitEstimate,
+} from '@unorder/core'
 
 /** Region segment used by the Sushiro CRM API. Japan is the default. */
 export type SushiroRegion = 'ja' | 'sg' | 'tw' | 'hk' | 'th' | 'id' | 'my'
@@ -10,7 +18,7 @@ export interface SushiroProviderConfig {
   region?: SushiroRegion
   /**
    * Store used by `menu.list` / `menu.get` when no session is open. Accepts the
-   * CRM store id (the same id returned by `x-sushiro.shop.list`).
+   * CRM store id returned by `shop.list` / `shop.get`.
    */
   storeId?: string
   /** Device/session GUID used for tickets. Generated on first use when omitted. */
@@ -71,35 +79,7 @@ export interface SushiroRawStore {
 
 export interface SushiroShop extends Shop {
   readonly brand: 'sushiro'
-  readonly status?: string
-  readonly address?: string
-  readonly area?: string
-  readonly latitude?: number
-  readonly longitude?: number
-  readonly distanceKm?: number
-  readonly waitMinutes?: number
-  readonly waitTimeCapMinutes?: number
-  readonly waitingGroups?: number
-  readonly netTicketStatus?: string
-  readonly reservationStatus?: string
-  readonly checkinStatus?: string
-  readonly requiresTicketLogin?: boolean
   readonly raw: SushiroRawStore
-}
-
-export interface SushiroQueue {
-  readonly storeId: string
-  readonly storeQueue: readonly string[]
-  readonly storeCounterQueue: readonly string[]
-  readonly storeBoothQueue: readonly string[]
-  readonly reservationQueue: readonly string[]
-  readonly reservationCounterQueue: readonly string[]
-  readonly reservationBoothQueue: readonly string[]
-  readonly mixedQueue: readonly string[]
-  readonly mixedCounterQueue: readonly string[]
-  readonly mixedBoothQueue: readonly string[]
-  readonly separateQueue: number
-  readonly raw: unknown
 }
 
 export interface SushiroWaitingConfig {
@@ -189,57 +169,130 @@ const asRawStore = (value: unknown): SushiroRawStore | undefined => {
   return value as SushiroRawStore
 }
 
+const statusOf = (value: string | undefined): ShopStatus => {
+  switch (value?.toUpperCase()) {
+    case 'OPEN':
+      return 'open'
+    case 'CLOSED':
+      return 'closed'
+    case 'TEMPORARILY_CLOSED':
+    case 'TEMP_CLOSED':
+    case 'SUSPENDED':
+      return 'temporarily_closed'
+    default:
+      return 'unknown'
+  }
+}
+
+const servicesOf = (raw: SushiroRawStore): ShopService[] => {
+  const services: ShopService[] = ['dine_in', 'takeout']
+  if (raw.netTicketStatus || raw.checkinStatus) {
+    services.push('queue')
+  }
+  if (raw.reservationStatus) {
+    services.push('reservation')
+  }
+  return services
+}
+
 export const toShop = (value: unknown): SushiroShop => {
   const raw = asRawStore(value)
   if (!raw) {
     throw new TypeError('Sushiro store payload is missing an id')
   }
-  const distance = numberValue(raw.distance)
+  const distanceKm = numberValue(raw.distance)
+  const latitude = numberValue(raw.latitude)
+  const longitude = numberValue(raw.longitude)
+  const location: GeoPoint | undefined =
+    latitude === undefined || longitude === undefined ? undefined : { latitude, longitude }
+  const statusRaw = stringValue(raw.storeStatus)
+  const waitMinutes = numberValue(raw.wait)
+  const waitingGroups = numberValue(raw.waitingGroup)
+  const waitEstimate: WaitEstimate | undefined =
+    waitMinutes === undefined && waitingGroups === undefined
+      ? undefined
+      : {
+          service: 'dine_in',
+          ...(waitMinutes === undefined ? {} : { minutes: waitMinutes }),
+          ...(waitingGroups === undefined ? {} : { parties: waitingGroups }),
+          raw: { waitTimeCapMinutes: numberValue(raw.waitTimeCap) },
+        }
   return {
     id: String(raw.id) as SushiroShop['id'],
     brand: 'sushiro',
     ...(stringValue(raw.name) ? { name: stringValue(raw.name) } : {}),
-    ...(stringValue(raw.storeStatus) ? { status: stringValue(raw.storeStatus) } : {}),
     ...(stringValue(raw.address) ? { address: stringValue(raw.address) } : {}),
     ...(stringValue(raw.area) ? { area: stringValue(raw.area) } : {}),
-    ...(numberValue(raw.latitude) === undefined ? {} : { latitude: numberValue(raw.latitude) }),
-    ...(numberValue(raw.longitude) === undefined ? {} : { longitude: numberValue(raw.longitude) }),
-    ...(distance === undefined || distance < 0 ? {} : { distanceKm: distance }),
-    ...(numberValue(raw.wait) === undefined ? {} : { waitMinutes: numberValue(raw.wait) }),
-    ...(numberValue(raw.waitTimeCap) === undefined
+    ...(location ? { location } : {}),
+    ...(distanceKm === undefined || distanceKm < 0
       ? {}
-      : { waitTimeCapMinutes: numberValue(raw.waitTimeCap) }),
-    ...(numberValue(raw.waitingGroup) === undefined
-      ? {}
-      : { waitingGroups: numberValue(raw.waitingGroup) }),
-    ...(stringValue(raw.netTicketStatus)
-      ? { netTicketStatus: stringValue(raw.netTicketStatus) }
-      : {}),
-    ...(stringValue(raw.reservationStatus)
-      ? { reservationStatus: stringValue(raw.reservationStatus) }
-      : {}),
-    ...(stringValue(raw.checkinStatus) ? { checkinStatus: stringValue(raw.checkinStatus) } : {}),
-    ...(typeof raw.requireNetTicketLogin === 'boolean'
-      ? { requiresTicketLogin: raw.requireNetTicketLogin }
-      : {}),
+      : { distanceMeters: Math.round(distanceKm * 1000) }),
+    status: statusOf(statusRaw),
+    ...(statusRaw ? { statusRaw } : {}),
+    services: servicesOf(raw),
+    ...(waitEstimate ? { waitEstimates: [waitEstimate] } : {}),
     raw,
   }
 }
 
-export const toQueue = (storeId: string, value: unknown): SushiroQueue => {
+const lane = (
+  id: string,
+  name: string,
+  numbers: readonly string[],
+  raw: Record<string, unknown>,
+): QueueLane | undefined =>
+  numbers.length === 0
+    ? undefined
+    : {
+        id,
+        name,
+        service: id.startsWith('reservation') ? 'reservation' : 'dine_in',
+        waiting: numbers.length,
+        numbers,
+        raw,
+      }
+
+export const toQueue = (storeId: string, value: unknown): Queue => {
   const raw = isRecord(value) ? value : {}
+  const table = arrayOfStrings(raw.storeQueue)
+  const counter = arrayOfStrings(raw.storeCounterQueue ?? raw.counterQueue)
+  const booth = arrayOfStrings(raw.storeBoothQueue ?? raw.boothQueue)
+  const reservation = arrayOfStrings(raw.reservationQueue)
+  const reservationCounter = arrayOfStrings(raw.reservationCounterQueue)
+  const reservationBooth = arrayOfStrings(raw.reservationBoothQueue)
+  const mixed = arrayOfStrings(raw.mixedQueue)
+  const mixedCounter = arrayOfStrings(raw.mixedCounterQueue)
+  const mixedBooth = arrayOfStrings(raw.mixedBoothQueue)
+  const separate = numberValue(raw.separateQueue) ?? 0
+  const lanes = [
+    lane('table', 'Table', table, { field: 'storeQueue' }),
+    lane('counter', 'Counter', counter, { field: 'storeCounterQueue' }),
+    lane('booth', 'Booth', booth, { field: 'storeBoothQueue' }),
+    lane('reservation', 'Reservation', reservation, { field: 'reservationQueue' }),
+    lane('reservation_counter', 'Reservation counter', reservationCounter, {
+      field: 'reservationCounterQueue',
+    }),
+    lane('reservation_booth', 'Reservation booth', reservationBooth, {
+      field: 'reservationBoothQueue',
+    }),
+    lane('mixed', 'Mixed', mixed, { field: 'mixedQueue' }),
+    lane('mixed_counter', 'Mixed counter', mixedCounter, { field: 'mixedCounterQueue' }),
+    lane('mixed_booth', 'Mixed booth', mixedBooth, { field: 'mixedBoothQueue' }),
+    ...(separate > 0
+      ? [
+          {
+            id: 'separate',
+            name: 'Separate',
+            service: 'dine_in' as const,
+            waiting: separate,
+            raw: { field: 'separateQueue' },
+          },
+        ]
+      : []),
+  ].filter((entry): entry is QueueLane => entry !== undefined)
   return {
-    storeId,
-    storeQueue: arrayOfStrings(raw.storeQueue),
-    storeCounterQueue: arrayOfStrings(raw.storeCounterQueue),
-    storeBoothQueue: arrayOfStrings(raw.storeBoothQueue),
-    reservationQueue: arrayOfStrings(raw.reservationQueue),
-    reservationCounterQueue: arrayOfStrings(raw.reservationCounterQueue),
-    reservationBoothQueue: arrayOfStrings(raw.reservationBoothQueue),
-    mixedQueue: arrayOfStrings(raw.mixedQueue),
-    mixedCounterQueue: arrayOfStrings(raw.mixedCounterQueue),
-    mixedBoothQueue: arrayOfStrings(raw.mixedBoothQueue),
-    separateQueue: numberValue(raw.separateQueue) ?? 0,
+    shopId: String(storeId) as Queue['shopId'],
+    lanes,
     raw: value,
   }
 }

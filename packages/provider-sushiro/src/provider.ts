@@ -1,6 +1,6 @@
 import {
   brand,
-  defineMethod,
+  createProviderInstance,
   defineProvider,
   defineStandardMethod,
   InvalidInputError,
@@ -12,23 +12,29 @@ import type {
   MenuItem,
   MenuItemId,
   MethodMap,
+  Page,
+  ProviderCreateOptions,
+  ProviderInstance,
+  ProviderRuntime,
+  Reservation,
+  ReservationSlot,
   Session,
   SessionId,
   ShopId,
   TableId,
+  WaitEstimate,
+  WaitlistStatus,
+  WaitlistTicket,
 } from '@unorder/core'
 import {
   cancelTicket,
   enterTicket,
-  getAppConfig,
-  getCheckInCount,
   getMenuHtml,
   getSlots,
   getStore,
   getStoreQueue,
   getTakeoutWaitTimes,
   getTicketStatus,
-  getWaitingConfig,
   issueTicket,
   searchStores,
   type ApiContext,
@@ -38,15 +44,12 @@ import { resolveEndpoints } from './http'
 import { parseSushiroMenu } from './menu'
 import type {
   SushiroProviderConfig,
-  SushiroQueue,
   SushiroShop,
   SushiroSlot,
   SushiroState,
   SushiroTableType,
+  SushiroTicket,
   SushiroTakeoutWaitTime,
-  SushiroTicketResult,
-  SushiroTicketStatus,
-  SushiroWaitingConfig,
 } from './types'
 import { isRecord } from './types'
 
@@ -123,11 +126,7 @@ const toSession = (state: SushiroState, now: Date): Session => ({
   page: state.storeId ? 'store' : 'unselected',
   openedAt: state.openedAt,
   updatedAt: now.toISOString(),
-  extensions: {
-    guid: state.guid,
-    region: state.region,
-    tableType: state.tableType,
-  },
+  raw: { region: state.region, tableType: state.tableType },
 })
 
 const resolveStoreId = (
@@ -177,6 +176,191 @@ const resolveTableType = (
   context.config.tableType ??
   DEFAULT_TABLE_TYPE
 
+const seatingTableType = (seating: string | undefined): SushiroTableType | undefined => {
+  switch (seating) {
+    case 'table':
+      return 'T'
+    case 'counter':
+      return 'C'
+    case 'pair':
+      return 'P'
+    default:
+      return undefined
+  }
+}
+
+const laneForTableType = (tableType: string | undefined): string | undefined => {
+  switch (tableType) {
+    case 'T':
+      return 'table'
+    case 'C':
+      return 'counter'
+    case 'P':
+      return 'pair'
+    default:
+      return undefined
+  }
+}
+
+const waitlistStatus = (value: string | undefined): WaitlistStatus => {
+  switch (value?.toUpperCase()) {
+    case 'WAITING':
+    case 'WAIT':
+      return 'waiting'
+    case 'CALLED':
+      return 'called'
+    case 'SEATED':
+    case 'CHECKED_IN':
+      return 'seated'
+    case 'CANCELLED':
+    case 'CANCELED':
+      return 'cancelled'
+    case 'MISSED':
+    case 'EXPIRED':
+      return 'expired'
+    default:
+      return 'unknown'
+  }
+}
+
+const toWaitlistTicket = (ticket: SushiroTicket, fallbackShopId?: string): WaitlistTicket => {
+  const shopId = ticket.storeId ?? fallbackShopId ?? ''
+  const partySize =
+    ticket.adults === undefined && ticket.children === undefined
+      ? undefined
+      : (ticket.adults ?? 0) + (ticket.children ?? 0)
+  return {
+    ...(ticket.ticketId === undefined ? {} : { id: String(ticket.ticketId) }),
+    ...(ticket.number ? { number: ticket.number } : {}),
+    shopId: brand<ShopId>(shopId),
+    status: waitlistStatus(ticket.status),
+    ...(ticket.status ? { statusRaw: ticket.status } : {}),
+    ...(partySize === undefined ? {} : { partySize }),
+    service: 'dine_in',
+    ...(laneForTableType(ticket.tableType) ? { lane: laneForTableType(ticket.tableType) } : {}),
+    ...(ticket.waitMinutes === undefined ? {} : { estimatedWaitMinutes: ticket.waitMinutes }),
+    raw: ticket.raw,
+  }
+}
+
+const reservationStatus = (value: string | undefined): Reservation['status'] => {
+  switch (value?.toUpperCase()) {
+    case 'CONFIRMED':
+    case 'RESERVED':
+      return 'confirmed'
+    case 'WAITING':
+    case 'PENDING':
+      return 'pending'
+    case 'CANCELLED':
+    case 'CANCELED':
+      return 'cancelled'
+    case 'MISSED':
+    case 'EXPIRED':
+      return 'expired'
+    default:
+      return 'unknown'
+  }
+}
+
+const formatDateTime = (date: string, time: string): string => {
+  const dateMatch = /^(\d{4})(\d{2})(\d{2})$/.exec(date)
+  const timeMatch = /^(\d{2})(\d{2})(\d{2})$/.exec(time)
+  if (!dateMatch || !timeMatch) {
+    return `${date}T${time}`
+  }
+  return `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}T${timeMatch[1]}:${timeMatch[2]}:${timeMatch[3]}`
+}
+
+const toReservation = (ticket: SushiroTicket): Reservation => {
+  const start =
+    ticket.queueDate && ticket.queueTime
+      ? formatDateTime(ticket.queueDate, ticket.queueTime)
+      : undefined
+  const partySize =
+    ticket.adults === undefined && ticket.children === undefined
+      ? undefined
+      : (ticket.adults ?? 0) + (ticket.children ?? 0)
+  return {
+    ...(ticket.ticketId === undefined ? {} : { id: String(ticket.ticketId) }),
+    shopId: brand<ShopId>(ticket.storeId ?? ''),
+    status: reservationStatus(ticket.status),
+    ...(ticket.status ? { statusRaw: ticket.status } : {}),
+    ...(partySize === undefined ? {} : { partySize }),
+    ...(start ? { start } : {}),
+    raw: ticket.raw,
+  }
+}
+
+const toReservationSlot = (slot: SushiroSlot): ReservationSlot => ({
+  shopId: brand<ShopId>(slot.storeId),
+  service: 'reservation',
+  start: formatDateTime(slot.date, slot.start),
+  end: formatDateTime(slot.date, slot.end),
+  available: slot.available,
+  status: slot.availability,
+  raw: slot.raw,
+})
+
+const pageOf = <Item>(
+  items: readonly Item[],
+  total: number,
+  offset: number,
+  limit: number,
+): Page<Item> => ({
+  items,
+  total,
+  offset,
+  limit,
+  hasMore: offset + items.length < total,
+})
+
+const takeoutWaits = async (
+  api: ApiContext,
+  storeIds: readonly string[],
+): Promise<Map<string, WaitEstimate>> => {
+  if (storeIds.length === 0) {
+    return new Map()
+  }
+  try {
+    const items = await getTakeoutWaitTimes(api, storeIds)
+    return new Map(
+      items.flatMap((item: SushiroTakeoutWaitTime) =>
+        item.minutes === null
+          ? []
+          : [
+              [
+                item.storeId,
+                { service: 'takeout' as const, minutes: item.minutes, raw: item.raw },
+              ] as const,
+            ],
+      ),
+    )
+  } catch {
+    return new Map()
+  }
+}
+
+const withTakeoutWaits = (
+  shops: readonly SushiroShop[],
+  waits: ReadonlyMap<string, WaitEstimate>,
+): SushiroShop[] =>
+  shops.map((shop) => {
+    const wait = waits.get(String(shop.id))
+    return wait ? { ...shop, waitEstimates: [...(shop.waitEstimates ?? []), wait] } : shop
+  })
+
+const storeWaits = async (
+  api: ApiContext,
+  storeId: string,
+): Promise<readonly WaitEstimate[] | undefined> => {
+  try {
+    const shop = await getStore(api, storeId)
+    return shop.waitEstimates
+  } catch {
+    return undefined
+  }
+}
+
 export const validateSushiroState = (raw: unknown): SushiroState => {
   if (!isRecord(raw)) {
     throw new InvalidInputError('Sushiro session state must be an object')
@@ -217,74 +401,6 @@ export const validateSushiroState = (raw: unknown): SushiroState => {
   }
 }
 
-const emptyInput = s.object({})
-const guidInput = s.object({
-  guid: s.optional(s.string()),
-})
-const ticketInput = s.object({
-  storeId: s.optional(s.string()),
-  adults: s.optional(s.integer({ minimum: 1, maximum: 99 })),
-  children: s.optional(s.integer({ minimum: 0, maximum: 99 })),
-  peopleCount: s.optional(s.integer({ minimum: 1, maximum: 99 })),
-  tableType: s.optional(s.string({ enum: ['T', 'C', 'P'] })),
-  guid: s.optional(s.string()),
-  googleRegistrationId: s.optional(s.string()),
-})
-
-const shopListInput = s.object({
-  latitude: s.optional(s.number({ minimum: -90, maximum: 90 })),
-  longitude: s.optional(s.number({ minimum: -180, maximum: 180 })),
-  numResults: s.optional(s.integer({ minimum: 1, maximum: 100 })),
-  storeIds: s.optional(s.array(s.string())),
-  query: s.optional(s.string()),
-  limit: s.optional(s.integer({ minimum: 1, maximum: 1000 })),
-  offset: s.optional(s.integer({ minimum: 0 })),
-})
-
-const slotInput = s.object({
-  storeId: s.optional(s.string()),
-  peopleCount: s.optional(s.integer({ minimum: 1, maximum: 99 })),
-  tableType: s.optional(s.string({ enum: ['T', 'C', 'P'] })),
-  guid: s.optional(s.string()),
-  date: s.optional(s.string({ pattern: '^\\d{4}-?\\d{2}-?\\d{2}$' })),
-  availableOnly: s.optional(s.boolean()),
-  limit: s.optional(s.integer({ minimum: 1, maximum: 1000 })),
-  offset: s.optional(s.integer({ minimum: 0 })),
-})
-
-const ticketResultSchema = s.object(
-  {
-    ok: s.boolean(),
-    status: s.optional(s.string()),
-    ticket: s.optional(s.unknown()),
-    raw: s.unknown(),
-  },
-  { additionalProperties: true },
-)
-
-const shopSchema = s.object(
-  {
-    id: s.string(),
-    name: s.optional(s.string()),
-    brand: s.string({ enum: ['sushiro'] }),
-    status: s.optional(s.string()),
-    address: s.optional(s.string()),
-    area: s.optional(s.string()),
-    latitude: s.optional(s.number()),
-    longitude: s.optional(s.number()),
-    distanceKm: s.optional(s.number()),
-    waitMinutes: s.optional(s.number()),
-    waitTimeCapMinutes: s.optional(s.number()),
-    waitingGroups: s.optional(s.number()),
-    netTicketStatus: s.optional(s.string()),
-    reservationStatus: s.optional(s.string()),
-    checkinStatus: s.optional(s.string()),
-    requiresTicketLogin: s.optional(s.boolean()),
-    raw: s.unknown(),
-  },
-  { additionalProperties: true },
-)
-
 const methods = {
   'session.open': defineStandardMethod<'session.open', SushiroState, SushiroProviderConfig>(
     'session.open',
@@ -310,16 +426,28 @@ const methods = {
       return toSession(state, ctx.now())
     },
   ),
+  'session.update': defineStandardMethod<'session.update', SushiroState, SushiroProviderConfig>(
+    'session.update',
+    (ctx, input) => {
+      if (input.peopleCount === undefined && input.tableId === undefined) {
+        throw new InvalidInputError('session.update requires peopleCount or tableId')
+      }
+      const state = ctx.requireState()
+      const next = {
+        ...state,
+        ...(input.peopleCount === undefined ? {} : { peopleCount: input.peopleCount }),
+        ...(input.tableId === undefined ? {} : { tableId: input.tableId }),
+      }
+      ctx.setState(next)
+      return toSession(next, ctx.now())
+    },
+  ),
   'session.close': defineStandardMethod<'session.close', SushiroState, SushiroProviderConfig>(
     'session.close',
     (ctx) => {
       ctx.setState(null)
       return { closed: true }
     },
-  ),
-  'session.export': defineStandardMethod<'session.export', SushiroState, SushiroProviderConfig>(
-    'session.export',
-    (ctx) => ctx.exportSession(),
   ),
   'menu.list': defineStandardMethod<'menu.list', SushiroState, SushiroProviderConfig>(
     'menu.list',
@@ -351,339 +479,189 @@ const methods = {
       return item
     },
   ),
-  'x-sushiro.shop.list': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    StoreSearchInput,
-    { items: readonly SushiroShop[]; total: number }
-  >({
-    name: 'x-sushiro.shop.list',
-    summary: 'Search Sushiro stores by location, id, or the full store list.',
-    description:
-      'Read-only CRM store search. Pass latitude/longitude for nearby stores, storeIds for an exact lookup, or neither for the full store list. Results are normalized to the shared Shop shape with provider fields and the original payload in raw.',
-    input: shopListInput,
-    output: s.object({ items: s.array(shopSchema), total: s.integer({ minimum: 0 }) }),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const api = apiContext(ctx)
-      return await searchStores(api, { ...input, guid: resolveGuid(ctx, undefined) })
-    },
-  }),
-  'x-sushiro.shop.get': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { storeId: string },
-    SushiroShop
-  >({
-    name: 'x-sushiro.shop.get',
-    summary: 'Read one Sushiro store, including wait and ticketing status.',
-    description:
-      'Read-only lookup of the CRM store endpoint. The normalized Shop fields include current wait minutes, waiting groups, and ticket/reservation availability.',
-    input: s.object({ storeId: s.string() }),
-    output: shopSchema,
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => await getStore(apiContext(ctx), input.storeId),
-  }),
-  'x-sushiro.shop.queue': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { storeId: string },
-    SushiroQueue
-  >({
-    name: 'x-sushiro.shop.queue',
-    summary: 'Read the live queue groups for a Sushiro store.',
-    description:
-      'Read-only call to the group queue endpoint. Returns the queue numbers for store, counter, booth, reservation, and mixed lanes.',
-    input: s.object({ storeId: s.string() }),
-    output: s.unknown(),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => await getStoreQueue(apiContext(ctx), input.storeId),
-  }),
-  'x-sushiro.shop.waiting': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { storeIds: readonly string[] },
-    { configs: readonly SushiroWaitingConfig[] }
-  >({
-    name: 'x-sushiro.shop.waiting',
-    summary: 'Read wait-time display settings for stores.',
-    description:
-      'Read-only call that reports whether each store shows wait times on the top page, store list, ticketing page, and ticket page.',
-    input: s.object({ storeIds: s.array(s.string(), { minItems: 1, maxItems: 50 }) }),
-    output: s.object({ configs: s.array(s.unknown()) }),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => ({
-      configs: await getWaitingConfig(apiContext(ctx), input.storeIds),
-    }),
-  }),
-  'x-sushiro.ticket.status': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { guid?: string },
-    SushiroTicketStatus
-  >({
-    name: 'x-sushiro.ticket.status',
-    summary: 'Read the tickets and reservations associated with a GUID.',
-    description:
-      'Read-only call to the anonymous opentickets endpoint. It returns tickets, local tickets, and reservations for the given GUID. Use the GUID exported by session.export.',
-    input: guidInput,
-    output: s.unknown(),
-    session: 'optional',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) =>
-      await getTicketStatus(apiContext(ctx), resolveGuid(ctx, input.guid)),
-  }),
-  'x-sushiro.ticket.slots': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    {
-      storeId?: string
-      peopleCount?: number
-      tableType?: 'T' | 'C' | 'P'
-      guid?: string
-      date?: string
-      availableOnly?: boolean
-      limit?: number
-      offset?: number
-    },
-    {
-      storeId: string
-      peopleCount: number
-      tableType: string
-      items: readonly SushiroSlot[]
-      total: number
-    }
-  >({
-    name: 'x-sushiro.ticket.slots',
-    summary: 'List reservation time slots for a store and party size.',
-    description:
-      'Read-only call to the reservation-timeslots endpoint. Slots are returned with their raw availability flag; use availableOnly to keep only AVAILABLE slots.',
-    input: slotInput,
-    output: s.object(
-      {
-        storeId: s.string(),
-        peopleCount: s.integer({ minimum: 1 }),
-        tableType: s.string({ enum: ['T', 'C', 'P'] }),
-        items: s.array(s.unknown()),
-        total: s.integer({ minimum: 0 }),
-      },
-      { additionalProperties: true },
-    ),
-    session: 'optional',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const storeId = resolveStoreId(ctx, input.storeId)
-      const peopleCount = resolvePeopleCount(ctx, input.peopleCount)
-      const tableType = resolveTableType(ctx, input.tableType)
-      const guid = resolveGuid(ctx, input.guid)
-      const slots = await getSlots(apiContext(ctx), {
-        storeId,
-        peopleCount,
-        tableType,
-        guid,
-      })
-      const normalizedDate = input.date?.replaceAll('-', '')
-      const filtered = slots.filter((slot) => {
-        if (normalizedDate && slot.date !== normalizedDate) {
-          return false
-        }
-        if (input.availableOnly && !slot.available) {
-          return false
-        }
-        return true
-      })
-      const offset = Math.max(0, Math.trunc(input.offset ?? 0))
-      const limit = Math.min(1000, Math.max(1, Math.trunc(input.limit ?? 200)))
-      return {
-        storeId,
-        peopleCount,
-        tableType,
-        items: filtered.slice(offset, offset + limit),
-        total: filtered.length,
+  'shop.list': defineStandardMethod<'shop.list', SushiroState, SushiroProviderConfig>(
+    'shop.list',
+    async (ctx, input) => {
+      if (input.ids && input.near) {
+        throw new InvalidInputError('shop.list accepts either ids or near, not both')
       }
+      const api = apiContext(ctx)
+      const radius = input.near?.radiusMeters
+      const searchInput: StoreSearchInput = {
+        ...(input.near
+          ? {
+              latitude: input.near.latitude,
+              longitude: input.near.longitude,
+              numResults: input.limit ?? 20,
+            }
+          : {}),
+        ...(input.ids ? { storeIds: input.ids } : {}),
+        ...(input.query ? { query: input.query } : {}),
+        ...(radius === undefined ? {} : { limit: 1000, offset: 0 }),
+        ...(radius !== undefined ? {} : input.limit === undefined ? {} : { limit: input.limit }),
+        ...(radius !== undefined ? {} : input.offset === undefined ? {} : { offset: input.offset }),
+        guid: resolveGuid(ctx),
+      }
+      const result = await searchStores(api, searchInput)
+      let shops = result.items
+      let total = result.total
+      const offset = input.offset ?? 0
+      const limit = input.limit ?? 50
+      if (radius !== undefined) {
+        shops = shops.filter(
+          (shop) => shop.distanceMeters === undefined || shop.distanceMeters <= radius,
+        )
+        total = shops.length
+        shops = shops.slice(offset, offset + limit)
+      }
+      const waits = await takeoutWaits(
+        api,
+        shops.map((shop) => String(shop.id)),
+      )
+      return pageOf(withTakeoutWaits(shops, waits), total, offset, limit)
     },
-  }),
-  'x-sushiro.ticket.check-in-count': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { storeId: string; ticketNumber: string },
-    number
-  >({
-    name: 'x-sushiro.ticket.check-in-count',
-    summary: 'Read the current wait count for one ticket number.',
-    description:
-      'Read-only call to the store queue count endpoint. The provider returns the upstream value unchanged because it is a scalar.',
-    input: s.object({ storeId: s.string(), ticketNumber: s.string() }),
-    output: s.unknown(),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) =>
-      (await getCheckInCount(apiContext(ctx), input.storeId, input.ticketNumber)) as number,
-  }),
-  'x-sushiro.ticket.issue': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    {
-      storeId?: string
-      adults?: number
-      children?: number
-      peopleCount?: number
-      tableType?: 'T' | 'C' | 'P'
-      guid?: string
-      googleRegistrationId?: string
+  ),
+  'shop.get': defineStandardMethod<'shop.get', SushiroState, SushiroProviderConfig>(
+    'shop.get',
+    async (ctx, input) => {
+      const api = apiContext(ctx)
+      const shop = await getStore(api, input.shopId)
+      const waits = await takeoutWaits(api, [String(shop.id)])
+      return withTakeoutWaits([shop], waits)[0] ?? shop
     },
-    SushiroTicketResult
-  >({
-    name: 'x-sushiro.ticket.issue',
-    summary: 'Issue a real "going now" queue ticket at a Sushiro store.',
-    description:
-      'WARNING: this is a real-world, destructive action. It creates a live queue ticket at the selected store and may affect seating and staff workload. Do not call it without explicit human approval. The provider does not send this request in tests.',
-    input: ticketInput,
-    output: ticketResultSchema,
-    session: 'optional',
-    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const storeId = resolveStoreId(ctx, input.storeId)
-      const adults = input.adults ?? input.peopleCount ?? resolvePeopleCount(ctx)
+  ),
+  'queue.get': defineStandardMethod<'queue.get', SushiroState, SushiroProviderConfig>(
+    'queue.get',
+    async (ctx, input) => {
+      const storeId = resolveStoreId(ctx, input.shopId)
+      const queue = await getStoreQueue(apiContext(ctx), storeId)
+      return { ...queue, updatedAt: ctx.now().toISOString() }
+    },
+  ),
+  'waitlist.join': defineStandardMethod<'waitlist.join', SushiroState, SushiroProviderConfig>(
+    'waitlist.join',
+    async (ctx, input) => {
+      const storeId = resolveStoreId(ctx, input.shopId)
+      const api = apiContext(ctx)
+      const guid = resolveGuid(ctx)
+      if (input.number) {
+        const result = await enterTicket(api, {
+          storeId,
+          ticketNumber: input.number,
+          guid,
+        })
+        return {
+          number: input.number,
+          shopId: brand<ShopId>(storeId),
+          status: result.ok ? ('waiting' as const) : ('unknown' as const),
+          ...(result.status ? { statusRaw: result.status } : {}),
+          service: 'dine_in' as const,
+          raw: result.raw,
+        }
+      }
+      const adults = input.partySize ?? resolvePeopleCount(ctx)
       const children = input.children ?? 0
-      const result = await issueTicket(apiContext(ctx), {
+      const tableType = seatingTableType(input.seating) ?? resolveTableType(ctx)
+      const result = await issueTicket(api, {
         storeId,
         adults,
         children,
-        tableType: resolveTableType(ctx, input.tableType),
-        guid: resolveGuid(ctx, input.guid),
-        ...(input.googleRegistrationId ? { googleRegistrationId: input.googleRegistrationId } : {}),
+        tableType,
+        guid,
       })
       const state = ctx.state
       if (state) {
         ctx.setState({ ...state, ...(result.ticket ? { lastTicket: result.ticket } : {}) })
       }
-      return result
+      if (!result.ticket) {
+        return {
+          shopId: brand<ShopId>(storeId),
+          status: result.ok ? ('waiting' as const) : ('unknown' as const),
+          ...(result.status ? { statusRaw: result.status } : {}),
+          service: 'dine_in' as const,
+          raw: result.raw,
+        }
+      }
+      return toWaitlistTicket(result.ticket, storeId)
     },
-  }),
-  'x-sushiro.ticket.cancel': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { guid?: string },
-    SushiroTicketResult
-  >({
-    name: 'x-sushiro.ticket.cancel',
-    summary: 'Cancel a real "going now" queue ticket.',
-    description:
-      'WARNING: this is a real-world, destructive action. It cancels the current anonymous queue ticket for the GUID and may lose the place in line. Do not call it without explicit human approval. The provider does not send this request in tests.',
-    input: guidInput,
-    output: ticketResultSchema,
-    session: 'optional',
-    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-    handler: async (ctx, input) =>
-      await cancelTicket(apiContext(ctx), resolveGuid(ctx, input.guid)),
-  }),
-  'x-sushiro.ticket.enter': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    {
-      storeId?: string
-      ticketNumber: string
-      guid?: string
-      googleRegistrationId?: string
-    },
-    SushiroTicketResult
-  >({
-    name: 'x-sushiro.ticket.enter',
-    summary: 'Register a store-issued paper ticket number.',
-    description:
-      'WARNING: this is a real-world action. It registers a ticket number issued at the store and can affect the local queue. Do not call it without explicit human approval. The provider does not send this request in tests.',
-    input: s.object({
-      storeId: s.optional(s.string()),
-      ticketNumber: s.string({ minLength: 1 }),
-      guid: s.optional(s.string()),
-      googleRegistrationId: s.optional(s.string()),
-    }),
-    output: ticketResultSchema,
-    session: 'optional',
-    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const storeId = resolveStoreId(ctx, input.storeId)
-      return await enterTicket(apiContext(ctx), {
-        storeId,
-        ticketNumber: input.ticketNumber,
-        guid: resolveGuid(ctx, input.guid),
-        ...(input.googleRegistrationId ? { googleRegistrationId: input.googleRegistrationId } : {}),
-      })
-    },
-  }),
-  'x-sushiro.takeout.wait-time': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { storeId?: string; storeIds?: readonly string[] },
-    { items: readonly SushiroTakeoutWaitTime[] }
-  >({
-    name: 'x-sushiro.takeout.wait-time',
-    summary: 'Read takeout pickup wait time for one or more stores.',
-    description:
-      'Read-only call to the takeout API with the app bearer token. It reports the estimated pickup wait in minutes and does not create or submit an order.',
-    input: s.object({
-      storeId: s.optional(s.string()),
-      storeIds: s.optional(s.array(s.string(), { minItems: 1, maxItems: 50 })),
-    }),
-    output: s.object({ items: s.array(s.unknown()) }),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx, input) => {
-      const ids =
-        input.storeIds && input.storeIds.length > 0
-          ? input.storeIds
-          : [resolveStoreId(ctx, input.storeId)]
-      return { items: await getTakeoutWaitTimes(apiContext(ctx), ids) }
-    },
-  }),
-  'x-sushiro.app.config': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    Record<string, never>,
-    unknown
-  >({
-    name: 'x-sushiro.app.config',
-    summary: 'Read the public app configuration and feature flags.',
-    description:
-      'Read-only call to the CRM config endpoint. It exposes the app version policy and feature flags the app reads at startup.',
-    input: emptyInput,
-    output: s.unknown(),
-    session: 'none',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-    handler: async (ctx) => await getAppConfig(apiContext(ctx)),
-  }),
-  'x-sushiro.table.set': defineMethod<
-    SushiroState,
-    SushiroProviderConfig,
-    { tableId: string },
-    Session
-  >({
-    name: 'x-sushiro.table.set',
-    summary: 'Record a table id in the local session (Sushiro-specific).',
-    description:
-      'Stores a table label locally for scripts that keep a table id alongside a store. This app has no table QR ordering flow, so nothing is sent upstream.',
-    input: s.object({ tableId: s.string() }),
-    output: s.unknown(),
-    session: 'required',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-    handler: (ctx, input) => {
-      const state = ctx.requireState()
-      const next = { ...state, tableId: input.tableId }
-      ctx.setState(next)
+  ),
+  'waitlist.cancel': defineStandardMethod<'waitlist.cancel', SushiroState, SushiroProviderConfig>(
+    'waitlist.cancel',
+    async (ctx) => {
+      const result = await cancelTicket(apiContext(ctx), resolveGuid(ctx))
+      const ticket = result.ticket ? toWaitlistTicket(result.ticket) : undefined
       return {
-        ...toSession(next, ctx.now()),
-        table: { id: brand<TableId>(input.tableId) },
+        cancelled: result.ok,
+        ...(ticket ? { ticket } : {}),
+        raw: result.raw,
       }
     },
+  ),
+  'waitlist.status': defineStandardMethod<'waitlist.status', SushiroState, SushiroProviderConfig>(
+    'waitlist.status',
+    async (ctx, input) => {
+      const api = apiContext(ctx)
+      const result = await getTicketStatus(api, resolveGuid(ctx))
+      const shopId = input.shopId ?? ctx.state?.storeId
+      const tickets = [...result.tickets, ...result.localTickets].map((ticket) =>
+        toWaitlistTicket(ticket, shopId),
+      )
+      const filtered =
+        input.ticketId === undefined
+          ? tickets
+          : tickets.filter((ticket) => ticket.id === input.ticketId)
+      const waits = shopId ? await storeWaits(api, shopId) : undefined
+      return {
+        ...(shopId ? { shopId } : {}),
+        tickets: filtered,
+        ...(waits ? { waits } : {}),
+        raw: result.raw,
+      }
+    },
+  ),
+  'reservation.slots': defineStandardMethod<
+    'reservation.slots',
+    SushiroState,
+    SushiroProviderConfig
+  >('reservation.slots', async (ctx, input) => {
+    const storeId = resolveStoreId(ctx, input.shopId)
+    const partySize = resolvePeopleCount(ctx, input.partySize)
+    const tableType = resolveTableType(ctx)
+    const slots = await getSlots(apiContext(ctx), {
+      storeId,
+      peopleCount: partySize,
+      tableType,
+      guid: resolveGuid(ctx),
+    })
+    const normalizedDate = input.date?.replaceAll('-', '')
+    const filtered = slots.filter((slot) => {
+      if (normalizedDate && slot.date !== normalizedDate) {
+        return false
+      }
+      if (input.availableOnly && !slot.available) {
+        return false
+      }
+      return true
+    })
+    const offset = Math.max(0, Math.trunc(input.offset ?? 0))
+    const limit = Math.min(1000, Math.max(1, Math.trunc(input.limit ?? 200)))
+    const page = filtered.slice(offset, offset + limit).map(toReservationSlot)
+    return pageOf(page, filtered.length, offset, limit)
   }),
+  'reservation.list': defineStandardMethod<'reservation.list', SushiroState, SushiroProviderConfig>(
+    'reservation.list',
+    async (ctx, input) => {
+      const result = await getTicketStatus(apiContext(ctx), resolveGuid(ctx))
+      const shopId = input.shopId ?? ctx.state?.storeId
+      const reservations = result.reservations
+        .map(toReservation)
+        .filter((reservation) => shopId === undefined || reservation.shopId === shopId)
+      return { reservations, raw: result.raw }
+    },
+  ),
 } satisfies MethodMap<SushiroState, SushiroProviderConfig>
 
-export const sushiro = defineProvider<
+const sushiroDefinition = defineProvider<
   'sushiro',
   SushiroState,
   SushiroProviderConfig,
@@ -692,7 +670,7 @@ export const sushiro = defineProvider<
   id: 'sushiro',
   displayName: 'Sushiro',
   description:
-    'Unofficial Sushiro provider for store search, live queues, queue tickets, reservations, dynamic menus, and takeout wait times. It does not implement in-store table ordering.',
+    'Unofficial Sushiro provider for store search, live queues, waitlists, reservations, dynamic menus, and takeout wait times. It does not implement in-store table ordering.',
   version: '0.1.0',
   stateVersion: 1,
   menus: 'dynamic',
@@ -710,39 +688,42 @@ export const sushiro = defineProvider<
     userAgent: s.optional(s.string()),
   }),
   validateState: validateSushiroState,
+  serializeState: (state) => state,
   methods,
 })
 
-export type SushiroProvider = typeof sushiro
-export type SushiroRuntime = ReturnType<typeof sushiro.createRuntime>
+export const sushiro = sushiroDefinition
+
+export type SushiroCreateOptions = ProviderCreateOptions<SushiroProviderConfig>
+export type SushiroProvider = typeof sushiroDefinition
+export type SushiroRuntime = ProviderRuntime<'sushiro', SushiroState, typeof methods>
 export type SushiroMenuItem = MenuItem
+export type SushiroMenuItemId = MenuItemId
+
+const isCreateOptions = (
+  value: SushiroProviderConfig | SushiroCreateOptions,
+): value is SushiroCreateOptions =>
+  'config' in value || 'fetch' in value || 'now' in value || 'session' in value
 
 /**
- * Creates a call-only Sushiro instance. This matches the forward-looking
- * `createProvider(config?)` shape while the current core still exposes
- * `provider.createRuntime()`.
+ * Creates a Sushiro provider instance. The returned object exposes only `call`;
+ * use core helpers such as `createClient` for typed nested calls and
+ * `exportSession` for serialization.
+ *
+ * Accepts either provider config directly (`createSushiro({ storeId })`) or core
+ * create options (`createSushiro({ config, fetch, session })`). A second argument
+ * can supply runtime options alongside a plain config.
  */
 export const createSushiro = (
-  config: SushiroProviderConfig = {},
-  options: {
-    fetch?: typeof globalThis.fetch
-    now?: () => Date
-    session?: Parameters<typeof sushiro.createRuntime>[0] extends infer Options
-      ? Options extends { session?: infer Session }
-        ? Session
-        : never
-      : never
-  } = {},
-) => {
-  const runtime = sushiro.createRuntime({
-    config,
-    ...(options.fetch ? { fetch: options.fetch } : {}),
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.session ? { session: options.session } : {}),
+  configOrOptions: SushiroProviderConfig | SushiroCreateOptions = {},
+  options: SushiroCreateOptions = {},
+): ProviderInstance<typeof methods> => {
+  const base = isCreateOptions(configOrOptions) ? configOrOptions : { config: configOrOptions }
+  return createProviderInstance(sushiroDefinition, {
+    ...base,
+    ...options,
+    config: { ...base.config, ...options.config },
   })
-  const call: typeof runtime.call = (name, input) => runtime.call(name, input)
-  return { call }
 }
 
 export type SushiroMethodName = keyof typeof methods
-export type SushiroMenuItemId = MenuItemId

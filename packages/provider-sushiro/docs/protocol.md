@@ -154,6 +154,21 @@ a number and keeps the original object in `raw`.
   ids/prices/categories, and keeps the original text in `raw`. Items with no
   price are marked `sold_out` when the annotation says so, otherwise `unknown`.
 
+## Standard method mapping
+
+| Endpoint area            | Standard method(s)                        |
+| ------------------------ | ----------------------------------------- |
+| Store search and status  | `shop.list`, `shop.get`                   |
+| Group queues             | `queue.get`                               |
+| Takeout wait             | `Shop.waitEstimates` (`service: takeout`) |
+| Anonymous tickets        | `waitlist.status`                         |
+| New ticket               | `waitlist.join`                           |
+| Paper ticket             | `waitlist.join` with `number`             |
+| Cancel ticket            | `waitlist.cancel`                         |
+| Reservation slots        | `reservation.slots`                       |
+| Reservation records      | `reservation.list`                        |
+| Display config / app cfg | private                                   |
+
 ## Not implemented
 
 - **In-store table ordering / cart / order / bill / receipt / staff call.** The
@@ -168,8 +183,8 @@ a number and keeps the original object in `raw`.
 ## Safety
 
 - Tests use a mock `fetch` and never contact a real Sushiro endpoint.
-- `x-sushiro.ticket.issue`, `.cancel`, and `.enter` are real-world side effects.
-  They are marked destructive and open-world; callers must require explicit
-  human approval.
+- `waitlist.join` and `waitlist.cancel` are real-world side effects. They are
+  marked destructive and open-world; callers must require explicit human
+  approval. `waitlist.join({ number })` registers a store-issued paper ticket.
 - Do not use this provider to bypass rate limits, automate bulk requests, or
   disrupt a restaurant.

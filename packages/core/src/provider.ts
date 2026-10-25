@@ -87,6 +87,10 @@ export type MenuCapability = 'none' | 'static' | 'dynamic' | 'both'
 export interface ProviderCapabilities {
   readonly methods: readonly string[]
   readonly menu: MenuCapability
+  readonly shops: boolean
+  readonly queue: boolean
+  readonly waitlist: boolean
+  readonly reservations: boolean
   readonly ordering: boolean
   readonly billing: boolean
   readonly calls: boolean
@@ -110,7 +114,6 @@ export interface ProviderRuntime<Id extends string, State, Methods extends AnyMe
   invoke(name: string, input?: unknown): Promise<unknown>
   getState(): State | null
   isOpen(): boolean
-  exportSession(): SessionExport<State>
   importSession(session: SessionExport): void
 }
 
@@ -230,6 +233,13 @@ const deriveCapabilities = (
   return {
     methods: names,
     menu: definition.menus ?? 'none',
+    shops: names.includes('shop.list') || names.includes('shop.get'),
+    queue: names.includes('queue.get'),
+    waitlist:
+      names.includes('waitlist.join') ||
+      names.includes('waitlist.cancel') ||
+      names.includes('waitlist.status'),
+    reservations: names.includes('reservation.slots') || names.includes('reservation.list'),
     ordering: names.includes('order.send'),
     billing: names.includes('bill.get') || names.includes('receipt.get'),
     calls: names.includes('staff.call'),
@@ -417,7 +427,6 @@ const buildRuntime = <Id extends string, State, Config, Methods extends MethodMa
     invoke,
     getState: () => (state === null ? null : cloneValue(state)),
     isOpen: () => state !== null,
-    exportSession: exportCurrentSession,
     importSession(session: SessionExport) {
       const next = ensureImportedState(session)
       state = next

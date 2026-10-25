@@ -1,11 +1,13 @@
 import { describeProvider } from '@unorder/core'
+import type { AnyMethodMap, ProviderInstance } from '@unorder/core'
 import { createSaizeriya } from '@unorder/saizeriya'
 import { createSushiro } from '@unorder/sushiro'
 
 /** Every built-in provider is bundled into the CLI and MCP server. */
-export const providers = [createSaizeriya(), createSushiro()] as const
+export type BuiltinProvider = ProviderInstance<AnyMethodMap>
 
-export type BuiltinProvider = (typeof providers)[number]
+export const providers: readonly BuiltinProvider[] = [createSaizeriya(), createSushiro()]
+
 export type BuiltinProviderId = 'saizeriya' | 'sushiro'
 
 export const findProvider = (id: string): BuiltinProvider | undefined =>

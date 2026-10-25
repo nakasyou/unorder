@@ -1,5 +1,6 @@
 export { createSushiro, sushiro, validateSushiroState } from './provider'
 export type {
+  SushiroCreateOptions,
   SushiroMethodName,
   SushiroMenuItem,
   SushiroMenuItemId,

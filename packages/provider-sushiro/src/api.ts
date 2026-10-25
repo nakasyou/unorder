@@ -1,4 +1,5 @@
 import { InvalidInputError, NotFoundError } from '@unorder/core'
+import type { Queue } from '@unorder/core'
 import {
   buildMenuUrl,
   buildUrl,
@@ -16,7 +17,6 @@ import {
   toTicketResult,
   toTicketStatus,
   toWaitingConfig,
-  type SushiroQueue,
   type SushiroShop,
   type SushiroSlot,
   type SushiroTakeoutWaitTime,
@@ -144,7 +144,7 @@ export const getStore = async (context: ApiContext, storeId: string): Promise<Su
   return shop
 }
 
-export const getStoreQueue = async (context: ApiContext, storeId: string): Promise<SushiroQueue> =>
+export const getStoreQueue = async (context: ApiContext, storeId: string): Promise<Queue> =>
   toQueue(
     storeId,
     await json(

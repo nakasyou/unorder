@@ -115,8 +115,8 @@ describe('CLI execution', () => {
     const api = new MockSushiroApi()
     const result = await executeMethod({
       providerId: 'sushiro',
-      method: 'x-sushiro.shop.list',
-      input: { storeIds: ['874'] },
+      method: 'shop.list',
+      input: { ids: ['874'] },
       store: new MemorySessionStore(),
       fetch: api.fetch,
     })

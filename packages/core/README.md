@@ -6,8 +6,9 @@ unorder. This package has no runtime dependencies.
 ## What is here
 
 - Branded identifiers (`ShopId`, `TableId`, `MenuItemId`, `OrderId`, ...)
-- Normalized domain types (`Shop`, `Menu`, `MenuItem`, `Cart`, `Order`, `Bill`,
-  `Receipt`, `Session`, `Money`)
+- Normalized domain types (`Shop`, `Queue`, `WaitlistTicket`, `Reservation`,
+  `Menu`, `MenuItem`, `Cart`, `Order`, `Bill`, `Receipt`, `Session`, `Money`)
+- Shared paging (`Page`) and location (`GeoPoint`) types
 - Lightweight JSON-Schema-like input/output descriptions and validation
 - A JSON-serializable error hierarchy (`UnorderError` and friends)
 - `defineProvider` (type-only identity), `defineMethod`, and `defineStandardMethod`
@@ -26,6 +27,7 @@ import {
   createProviderRuntime,
   defineProvider,
   defineStandardMethod,
+  exportSession,
   s,
 } from '@unorder/core'
 
@@ -45,7 +47,7 @@ const provider = defineProvider<'demo', State, { label: string }, typeof methods
 
 const runtime = createProviderRuntime(provider)
 const output = await runtime.call('menu.list', { query: 'pasta' })
-const session = runtime.exportSession()
+const session = exportSession(provider, runtime.getState())
 
 const instance = createProviderInstance(provider)
 const client = createClient(instance)
@@ -63,13 +65,21 @@ config, an injectable `fetch`, and a clock. Session-required methods fail with
 `AuthRequiredError` before the handler runs. Unknown methods fail with
 `UnsupportedError`, and schema violations fail with `InvalidInputError`.
 
+## Standard methods
+
+The standard surface is declared once in `src/standard.ts`; providers reuse the
+schemas and descriptions through `defineStandardMethod`. It covers session, menu,
+shop, queue, waitlist, reservation, cart, order, billing, and service methods. See
+the root README for the full table.
+
+There are no `x-<provider>.*` extension methods. When a provider has a new
+concept, extend the core domain types and add a provider-neutral standard method,
+or keep the concept private.
+
 ## Sessions
 
 `session.export` is provided automatically for every provider; providers do not
-implement it. `exportSession(provider, state)` wraps serialized state in a
-versioned `unorder.session` envelope. Providers may supply a minimal
-`serializeState` hook and `validateState` / `migrateState` for imports.
-
-The standard method surface is declared once in `src/standard.ts`; providers reuse
-the schemas and descriptions through `defineStandardMethod`. Extensions should use
-an `x-<provider>.` namespace so the standard surface stays stable.
+implement it. `exportSession(provider, state?)` wraps serialized state in a
+versioned `unorder.session` envelope and is the only serializer. Providers may
+supply a minimal `serializeState` hook and `validateState` / `migrateState` for
+imports. `ProviderRuntime` deliberately has no `exportSession` method.

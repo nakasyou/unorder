@@ -22,6 +22,8 @@ export interface MenuListResult {
 
 export interface MenuGetInput {
   readonly id: string
+  /** Ask the provider for live availability instead of a cached snapshot when supported. */
+  readonly live?: boolean
 }
 
 export const DEFAULT_MENU_LIMIT = 200

@@ -29,13 +29,17 @@ unorder run saizeriya menu.list '{"limit":5}' \
   --menu-file ./packages/provider-saizeriya/data/menu.json
 
 # Read-only Sushiro methods
-unorder run sushiro x-sushiro.shop.list '{"latitude":35.68,"longitude":139.76}'
+unorder run sushiro shop.list '{"near":{"latitude":35.68,"longitude":139.76}}'
 UNORDER_SUSHIRO_STORE_ID=874 unorder run sushiro menu.list '{"limit":5}'
+unorder run sushiro waitlist.status '{}'
 
 cat menu-query.json | unorder run saizeriya menu.list - --menu-file ./menu.json
 
 unorder run saizeriya session.open \
   '{"qrUrl":"https://example.com/saizeriya3/qr?table=...","peopleCount":2}' \
+  --state ./.unorder/state.json
+
+unorder run saizeriya session.update '{"peopleCount":3}' \
   --state ./.unorder/state.json
 
 unorder run saizeriya cart.add '{"itemId":"1202","quantity":2}' \
@@ -46,7 +50,8 @@ unorder run saizeriya session.export '{}' --state ./.unorder/state.json
 
 `session.export` is implemented by core for every provider. It returns the
 stored versioned session envelope, and fails with an `invalid_input` error JSON
-when no session is stored for the provider.
+when no session is stored for the provider. Serialization always goes through the
+core `exportSession(provider, state?)` function.
 
 Results and errors are JSON on stdout; diagnostics are on stderr. For example an
 error exits non-zero and prints:
@@ -63,8 +68,12 @@ Every method becomes a tool named `<provider>.<method>`:
 
 - `saizeriya.menu.list`
 - `saizeriya.session.open`
+- `saizeriya.session.update`
 - `saizeriya.cart.add`
-- `saizeriya.order.send`
+- `saizeriya.order.validate`
+- `sushiro.shop.list`
+- `sushiro.queue.get`
+- `sushiro.waitlist.status`
 - ...
 
 Tool input schemas come from `@unorder/core` descriptors, so they stay in sync with

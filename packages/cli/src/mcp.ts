@@ -78,13 +78,7 @@ export const startMcpServer = async (options: McpServerOptions = {}): Promise<vo
   )
   const tools = createToolDefinitions(providerList)
   const toolMethods = describeMethodMap(providerList)
-  const runtimes = new Map<
-    string,
-    {
-      invoke(name: string, input?: unknown): Promise<unknown>
-      exportSession(): unknown
-    }
-  >()
+  const runtimes = new Map<string, { invoke(name: string, input?: unknown): Promise<unknown> }>()
   const output = options.output ?? process.stdout
   const input = options.input ?? process.stdin
 
@@ -155,7 +149,7 @@ export const startMcpServer = async (options: McpServerOptions = {}): Promise<vo
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'unorder', version: '0.1.0' },
         instructions:
-          'Use saizeriya.menu.list to read the static menu. Actions such as order.send, bill.get, receipt.get, and staff.call affect a real restaurant session.',
+          'Use saizeriya.menu.list or sushiro.shop.list for read-only browsing. Actions such as order.send, bill.get, receipt.get, staff.call, waitlist.join, and waitlist.cancel affect a real restaurant session.',
       })
       return true
     }
