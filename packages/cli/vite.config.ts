@@ -5,6 +5,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@unorder/core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)),
+      '@unorder/kurasushi': fileURLToPath(
+        new URL('../provider-kurasushi/src/index.ts', import.meta.url),
+      ),
       '@unorder/saizeriya': fileURLToPath(
         new URL('../provider-saizeriya/src/index.ts', import.meta.url),
       ),

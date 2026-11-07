@@ -1,3 +1,4 @@
+import type { AnyMethodMap } from '@unorder/core'
 import type { Readable, Writable } from 'node:stream'
 import { createInterface } from 'node:readline'
 import {
@@ -116,7 +117,10 @@ export const startMcpServer = async (options: McpServerOptions = {}): Promise<vo
       return existing
     }
     const config = providerConfig(providerId, options.overrides)
-    const runtime = createProviderRuntime(provider, config ? { config: config as never } : {})
+    const runtime = createProviderRuntime<AnyMethodMap>(
+      provider,
+      config ? { config: config as never } : {},
+    )
     runtimes.set(providerId, runtime)
     return runtime
   }

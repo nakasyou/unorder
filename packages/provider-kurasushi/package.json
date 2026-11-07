@@ -1,0 +1,35 @@
+{
+  "name": "@unorder/kurasushi",
+  "version": "0.1.0",
+  "description": "Unofficial Kurasushi EPARK smart-order provider for Unorder.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakasyou/unorder.git",
+    "directory": "packages/provider-kurasushi"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "pack": "vp pack"
+  },
+  "dependencies": {
+    "@unorder/core": "workspace:*"
+  }
+}
