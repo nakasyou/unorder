@@ -1,4 +1,5 @@
 import {
+  AuthRequiredError,
   brand,
   calculateCart,
   ConflictError,
@@ -6,6 +7,7 @@ import {
   defineMethod,
   defineProvider,
   defineStandardMethod,
+  exportSession,
   InvalidInputError,
   listMenuItems,
   money,
@@ -26,6 +28,7 @@ import type {
   OrderId,
   ProviderInstance,
   ProviderCreateOptions,
+  SessionStore,
   ShopId,
   TableId,
 } from '@unorder/core'
@@ -390,17 +393,38 @@ const definition = defineProvider<'kurasushi', KurasushiState, Config, typeof me
   methods,
   validateState: validateKurasushiState,
 })
-export type KurasushiCreateOptions = ProviderCreateOptions<Config>
+export interface KurasushiCreateOptions extends ProviderCreateOptions<Config> {
+  /** Saves state after calls, including partial or uncertain submissions. Use openKurasushi to load it. */
+  readonly store?: SessionStore
+}
 export const createKurasushi = (
   options: KurasushiCreateOptions = {},
 ): ProviderInstance<typeof methods> => {
+  let instance: ProviderInstance<typeof methods>
   let queue: Promise<unknown> = Promise.resolve()
   const serialize = <Input, Output>(
     method: MethodDefinition<KurasushiState, Config, Input, Output>,
   ) => ({
     ...method,
     handler(ctx: Context, input: Input): Promise<Output> {
-      const result = queue.then(() => method.handler(ctx, input))
+      const result = queue.then(async () => {
+        try {
+          return await method.handler(ctx, input)
+        } finally {
+          if (options.store) {
+            if (ctx.state) {
+              await options.store.save(
+                exportSession(instance, ctx.state, {
+                  createdAt: ctx.state.openedAt,
+                  updatedAt: ctx.now().toISOString(),
+                }),
+              )
+            } else {
+              await options.store.clear('kurasushi')
+            }
+          }
+        }
+      })
       queue = result.catch(() => undefined)
       return result
     },
@@ -411,5 +435,25 @@ export const createKurasushi = (
       serialize(method as unknown as MethodDefinition<KurasushiState, Config, never, unknown>),
     ]),
   ) as typeof methods
-  return createProviderInstance({ ...definition, methods: locked }, options)
+  instance = createProviderInstance({ ...definition, methods: locked }, options)
+  return instance
+}
+
+export interface KurasushiOpenOptions extends Omit<KurasushiCreateOptions, 'session' | 'store'> {
+  readonly store: SessionStore
+  /** Used only when no open session is stored. Existing sessions never replay an old QR. */
+  readonly qrUrl?: string
+}
+
+/** Restore the stored bearer session first; authenticate from a QR only on first connection. */
+export const openKurasushi = async (
+  options: KurasushiOpenOptions,
+): Promise<ProviderInstance<typeof methods>> => {
+  const saved = await options.store.load('kurasushi')
+  const instance = createKurasushi({ ...options, ...(saved ? { session: saved } : {}) })
+  if (saved && saved.state !== null) return instance
+  if (!options.qrUrl)
+    throw new AuthRequiredError('No stored Kurasushi session; provide a current QR URL')
+  await instance.call('session.open', { qrUrl: options.qrUrl })
+  return instance
 }

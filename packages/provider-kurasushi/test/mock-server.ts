@@ -28,6 +28,9 @@ export class MockKurasushiServer {
     const url = new URL(input instanceof Request ? input.url : input)
     expect(url.origin).toBe('https://api-app.smart-order.epark.jp')
     expect(new Headers(init?.headers).get('Language-Id')).toBe('ja')
+    expect(new Headers(init?.headers).get('Origin')).toBe('https://kurasushi-so.epark.jp')
+    expect(new Headers(init?.headers).get('Referer')).toBe('https://kurasushi-so.epark.jp/')
+    expect(new Headers(init?.headers).has('Cookie')).toBe(false)
     expect(init?.redirect).toBe('error')
     const body =
       typeof init?.body === 'string'

@@ -59,3 +59,23 @@ verify QR validation, Japan timestamps, token headers, menu deduplication,
 topping defaults, exact order bodies, rejected/partial submissions, uncertain
 results, session restoration, serialized sends, CLI persistence, and MCP discovery.
 No live order, staff call, checkout, or payment was sent during development.
+
+## Live read-only verification and token reuse
+
+The supplied current QR was verified against authentication, seat information,
+shop information, and menu endpoints (all HTTP 200). Reopening a provider using
+the saved session fetched the menu successfully without calling authentication.
+The older QR returned HTTP 403 from `auth/web/v1/` with code `403-1` and the
+message “お席が見つかりませんでした。” This establishes the rejected request and
+server reason; it does not establish the QR expiration policy.
+
+The web bundle stores `KRSO_token` on the frontend host with `expires: 1/8`,
+`secure: true`, and `sameSite: 'strict'`. Authentication reads this cookie and
+passes the token through `soAuthToken`. The API calls observed during the live
+verification returned no Set-Cookie headers. SDK session persistence replaces
+the frontend cookie; it must not replay an old QR on every invocation.
+
+`openKurasushi({store, qrUrl?})` loads stored sessions before authentication and
+persists method state under the provider's serialized call queue. It does not
+automatically reauthenticate after 401/403 or retry an order. Diagnostic errors
+preserve status, endpoint, and safe recognized server codes without raw responses.

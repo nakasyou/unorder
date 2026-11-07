@@ -175,3 +175,32 @@ describe('Kurasushi provider', () => {
     expect(server.requests.every((request) => !request.path.includes('/pay/'))).toBe(true)
   })
 })
+
+describe('stored SDK connections', () => {
+  it('restores a session across instances and ignores the old QR', async () => {
+    const { MemorySessionStore } = await import('@unorder/core')
+    const { openKurasushi } = await import('../src')
+    const store = new MemorySessionStore()
+    const server = new MockKurasushiServer()
+    const first = await openKurasushi({ store, fetch: server.fetch, now, qrUrl })
+    await first.call('cart.add', { itemId: '33800075' })
+    const second = await openKurasushi({
+      store,
+      fetch: server.fetch,
+      now,
+      qrUrl: 'https://kurasushi-so.epark.jp/?id=expired',
+    })
+    expect(await second.call('cart.list', {})).toMatchObject({ itemCount: 1 })
+    await second.call('menu.list', {})
+    expect(server.requests.filter((r) => r.path.includes('/auth/'))).toHaveLength(1)
+    server.results = ['network']
+    await expect(second.call('order.send', {})).rejects.toMatchObject({ code: 'network' })
+    const third = await openKurasushi({ store, fetch: server.fetch, now })
+    expect((await third.call('order.list', {})).orders).toMatchObject([{ status: 'unknown' }])
+    await third.call('session.close', {})
+    expect(await store.load('kurasushi')).toBeNull()
+    await expect(openKurasushi({ store, fetch: server.fetch, now })).rejects.toMatchObject({
+      code: 'auth_required',
+    })
+  })
+})

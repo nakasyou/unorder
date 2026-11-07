@@ -17,6 +17,44 @@ await kura.call('cart.add', { itemId: item.id, quantity: 1 })
 // await kura.call('order.send', {})
 ```
 
+## Reuse sessions in SDK applications
+
+Use `openKurasushi` with the same `SessionStore` across connections. It restores
+an existing session first and uses `qrUrl` only when there is no open session.
+Calls save state automatically, including partial/uncertain results on failure;
+`session.close` clears the store. A failed token is reported explicitly and never
+silently retried using an old QR.
+
+```ts
+import { MemorySessionStore } from '@unorder/core'
+import { openKurasushi } from '@unorder/kurasushi'
+
+const store = new MemorySessionStore() // Retain this store across connections.
+const first = await openKurasushi({ store, qrUrl: currentQrUrl })
+await first.call('menu.list', {})
+const next = await openKurasushi({ store }) // Reuses the token; no QR authentication.
+await next.call('menu.list', { query: 'サーモン' })
+```
+
+`MemorySessionStore` survives only as long as its process. To survive process
+restarts, supply a durable implementation of core's `SessionStore` (`load`,
+`save`, `clear`). The CLI already uses a file-backed store. The synchronous
+`createKurasushi({ session, store })` constructor remains available for explicit
+restoration and automatic saves; without `store`, callers own export/persistence.
+
+The browser saves its token in a host-only `KRSO_token` cookie for 1/8 day
+(about three hours), with Secure and SameSite=Strict. It sends that value to the
+API as `soAuthToken`, not as a cross-host Cookie header. The SDK preserves the
+same bearer-token semantics in its session state. Requests include the web app's
+Origin and Referer. There is no invented Cookie header or shared browser jar.
+
+Authentication errors retain `details.status` and `details.endpoint`, so 401 and
+403 are distinguishable. `KurasushiAuthError` extends core's `AuthRequiredError`.
+A known server code is exposed as `details.serverCode`; code 403-1 additionally
+reports “お席が見つかりませんでした。” This is not automatically labelled a token
+expiry. Raw response bodies, tokens, and QR values are excluded from errors.
+An HTTP 202 authentication response is reported as pending, not as a valid session.
+
 CLI and MCP include this provider as `kurasushi`:
 
 ```bash

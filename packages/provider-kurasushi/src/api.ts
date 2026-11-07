@@ -6,6 +6,25 @@ import {
   RateLimitedError,
 } from '@unorder/core'
 
+export interface KurasushiHttpErrorDetails {
+  readonly status: number
+  readonly endpoint: string
+  readonly serverCode?: string
+  readonly reason?: string
+}
+
+/** Distinguishes rejected QR authentication from expired API access without exposing secrets. */
+export class KurasushiAuthError extends AuthRequiredError {
+  override readonly details: KurasushiHttpErrorDetails
+
+  constructor(details: KurasushiHttpErrorDetails) {
+    super(
+      `Kurasushi HTTP ${details.status} at ${details.endpoint}${details.serverCode ? ` (${details.serverCode})` : ''}${details.reason ? `: ${details.reason}` : ''}`,
+    )
+    this.details = details
+  }
+}
+
 export const API_BASE_URL = 'https://api-app.smart-order.epark.jp'
 
 export const record = (value: unknown): Record<string, unknown> => {
@@ -64,6 +83,8 @@ export const request = async (
       method: body === undefined ? 'GET' : 'POST',
       headers: {
         'Language-Id': 'ja',
+        Origin: 'https://kurasushi-so.epark.jp',
+        Referer: 'https://kurasushi-so.epark.jp/',
         soAuthToken: token,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
@@ -75,10 +96,40 @@ export const request = async (
     // Never include a request, QR value, or access token in public errors.
     throw new NetworkError('Kurasushi request failed; mutating requests are never retried')
   }
-  if (response.status === 401 || response.status === 403)
-    throw new AuthRequiredError('Kurasushi authentication expired or was rejected')
-  if (response.status === 429) throw new RateLimitedError('Kurasushi rate limit reached')
-  if (!response.ok) throw new ProviderError(`Kurasushi HTTP ${response.status}`)
+  const details: KurasushiHttpErrorDetails = {
+    status: response.status,
+    endpoint: `/app_order/${path.split('?')[0]}`,
+  }
+  if (response.status === 401 || response.status === 403) {
+    // Raw server messages can echo credentials. Expose only the documented code and known reason.
+    let serverCode: string | undefined
+    try {
+      const data: unknown = await response.json()
+      if (
+        data &&
+        typeof data === 'object' &&
+        'message' in data &&
+        typeof data.message === 'string'
+      ) {
+        serverCode = data.message.match(/\b(?:401|403)-\d{1,3}\b/)?.[0]
+      }
+    } catch {
+      // Non-JSON rejection responses still retain the status and endpoint.
+    }
+    throw new KurasushiAuthError({
+      ...details,
+      ...(serverCode ? { serverCode } : {}),
+      ...(serverCode === '403-1' ? { reason: 'お席が見つかりませんでした。' } : {}),
+    })
+  }
+  if (response.status === 429)
+    throw new RateLimitedError('Kurasushi rate limit reached', { details })
+  if (!response.ok) throw new ProviderError(`Kurasushi HTTP ${response.status}`, { details })
+  if (response.status === 202 && path === 'auth/web/v1/') {
+    throw new ProviderError('Kurasushi authentication is pending; try authentication again later', {
+      details,
+    })
+  }
   try {
     return await response.json()
   } catch {
