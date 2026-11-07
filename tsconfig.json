@@ -16,6 +16,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "paths": {
+      "@unorder/kurasushi": ["./packages/provider-kurasushi/src/index.ts"],
       "@unorder/core": ["./packages/core/src/index.ts"],
       "@unorder/saizeriya": ["./packages/provider-saizeriya/src/index.ts"]
     },

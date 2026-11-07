@@ -23,11 +23,20 @@ importers:
       '@unorder/core':
         specifier: workspace:*
         version: link:../core
+      '@unorder/kurasushi':
+        specifier: workspace:*
+        version: link:../provider-kurasushi
       '@unorder/saizeriya':
         specifier: workspace:*
         version: link:../provider-saizeriya
 
   packages/core: {}
+
+  packages/provider-kurasushi:
+    dependencies:
+      '@unorder/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/provider-saizeriya:
     dependencies:

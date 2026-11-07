@@ -1,3 +1,4 @@
+import type { AnyMethodMap } from '@unorder/core'
 import { createProviderRuntime, InvalidInputError, UnsupportedError } from '@unorder/core'
 import type { SessionStore } from '@unorder/core'
 import type { BuiltinProvider } from './providers'
@@ -59,20 +60,24 @@ export const executeMethod = async (options: ExecuteOptions): Promise<ExecuteRes
     )
   }
   const config = providerConfig(options.providerId, options.overrides)
-  const runtime = createProviderRuntime(provider, {
+  const runtime = createProviderRuntime<AnyMethodMap>(provider, {
     ...(existing ? { session: existing } : {}),
     ...(config ? { config: config as never } : {}),
     ...(options.fetch ? { fetch: options.fetch } : {}),
   })
 
-  const output = await runtime.invoke(options.method, options.input ?? {})
-  if (runtime.isOpen()) {
-    await options.store.save(runtime.exportSession())
-    return { output, session: 'saved' }
+  try {
+    const output = await runtime.invoke(options.method, options.input ?? {})
+    return {
+      output,
+      session: runtime.isOpen() ? 'saved' : existing ? 'cleared' : 'unchanged',
+    }
+  } finally {
+    // A provider may record partial success or an uncertain remote mutation before throwing.
+    if (runtime.isOpen()) {
+      await options.store.save(runtime.exportSession())
+    } else if (existing) {
+      await options.store.clear(options.providerId)
+    }
   }
-  if (existing) {
-    await options.store.clear(options.providerId)
-    return { output, session: 'cleared' }
-  }
-  return { output, session: 'unchanged' }
 }

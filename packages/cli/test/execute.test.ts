@@ -149,3 +149,33 @@ describe('CLI execution', () => {
     expect(await store.load('saizeriya')).toBeNull()
   })
 })
+
+describe('Kurasushi CLI state', () => {
+  it('persists unknown orders even when execution fails', async () => {
+    const { MockKurasushiServer } = await import('../../provider-kurasushi/test/mock-server')
+    const server = new MockKurasushiServer()
+    const { createKurasushi } = await import('@unorder/kurasushi')
+    const { exportSession } = await import('@unorder/core')
+    const provider = createKurasushi({
+      fetch: server.fetch,
+      now: () => new Date('2026-11-07T10:30:00Z'),
+    })
+    await provider.call('session.open', { qrUrl: 'https://kurasushi-so.epark.jp/?id=test-qr' })
+    await provider.call('cart.add', { itemId: '33800075' })
+    const store = new MemorySessionStore()
+    await store.save(exportSession(provider))
+    server.results = ['network']
+    await expect(
+      executeMethod({
+        providerId: 'kurasushi',
+        method: 'order.send',
+        input: {},
+        store,
+        fetch: server.fetch,
+      }),
+    ).rejects.toMatchObject({ code: 'network' })
+    expect(await store.load('kurasushi')).toMatchObject({
+      state: { cart: [], orders: [{ status: 'unknown' }] },
+    })
+  })
+})

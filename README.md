@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > unorder is an unofficial interoperability project. It is not affiliated with,
-> endorsed by, or supported by Saizeriya. Use it only with sessions and accounts
+> endorsed by, or supported by Saizeriya, Kurasushi, or EPARK. Use it only with sessions and accounts
 > you are allowed to use, and do not use it to disrupt, overload, bypass, or
 > otherwise misuse a real restaurant service.
 
@@ -16,11 +16,17 @@ and exposes every method to AI agents through a stdio MCP server.
 | -------------------- | ------------------------------------------------------------------------------------------------------ |
 | `@unorder/core`      | Provider-independent domain types, schemas, errors, menu helpers, typed runtime, and Proxy client.     |
 | `@unorder/saizeriya` | Unofficial Saizeriya provider, a pinned static menu snapshot, and a small dependency-free HTML parser. |
+| `@unorder/kurasushi` | Unofficial Kurasushi EPARK provider with dynamic menus and local carts.                                |
 | `@unorder/cli`       | The `unorder` binary (`run`, `mcp`, `providers`, `methods`, `--help`).                                 |
 
 Providers have no third-party runtime dependencies. The Saizeriya provider uses
 Node's standard `fetch`, filesystem APIs, and an in-repository HTML parser. Browser
 automation and Playwright are intentionally not part of this project.
+
+The [Kurasushi provider](packages/provider-kurasushi/README.md) supports seated QR
+sessions, dynamic menus, toppings, ordering, and table history. It is bundled in
+both CLI and MCP. See its README for the partial-order and uncertain-response
+behavior and the [protocol notes](docs/kurasushi-protocol.md) for HAR/JavaScript evidence.
 
 ## Requirements
 
