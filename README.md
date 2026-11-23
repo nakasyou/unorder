@@ -29,7 +29,7 @@ sessions, dynamic menus, toppings, ordering, and table history. It is bundled in
 both CLI and MCP. See its README for the partial-order and uncertain-response
 behavior and the [protocol notes](docs/kurasushi-protocol.md) for HAR/JavaScript evidence.
 
-The [Sushiro provider](packages/provider-sushiro/README.md) supports dynamic menus and guarded order submission using an existing authorized session token. The supplied HAR does not establish how QR `q` values are exchanged for tokens; this is intentionally not guessed.
+The [Sushiro provider](packages/provider-sushiro/README.md) supports dynamic menus and guarded order submission using an existing authorized session token. The captured frontend uses the opaque QR query via a config/start sequence; the start response was not captured, so this path remains provisional and fails closed if the assumed token field is absent.
 
 ## Requirements
 
