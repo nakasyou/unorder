@@ -29,12 +29,20 @@ export const parseSushiroSessionURL = (input: string): string => {
 
 export const sushiroRequest = async (fetchImpl: typeof fetch, path: string, token: string, body?: unknown): Promise<unknown> => {
   if (!/^\/v1\/(?:session|menu|mobile\/order(?:\/detail)?|mobile\/order\/start|config\?q=[A-Za-z0-9+%._~-]{32,1024})$/.test(path)) throw new InvalidInputError('Unsupported Sushiro endpoint')
+  // RTK Query fetchBaseQuery sends a string body unchanged (not JSON.stringify).
+  // The captured frontend's postStart uses precisely this behavior.
+  const starting = path === '/v1/mobile/order/start'
+  if (starting && typeof body !== 'string') throw new InvalidInputError('Invalid Sushiro start payload')
   let response: Response
   try {
     response = await fetchImpl(ORIGIN + path, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: { authorization: token, accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json', origin: ORIGIN }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      headers: {
+        accept: 'application/json',
+        ...(token ? { authorization: token } : {}),
+        ...(body === undefined || starting ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: starting ? body as string : JSON.stringify(body) }),
       redirect: 'error', signal: AbortSignal.timeout(30000),
     })
   } catch { throw new NetworkError('Sushiro request failed; an uncertain order must not be retried automatically') }
@@ -48,6 +56,6 @@ export const sushiroRequest = async (fetchImpl: typeof fetch, path: string, toke
 export const sushiroConfig = (fetchImpl: typeof fetch, entry: string): Promise<unknown> =>
   sushiroRequest(fetchImpl, '/v1/config?q=' + encodeURIComponent(entry), '')
 
-/** Matches the upstream frontend's JSON-string body for postStart; may register a device. */
+/** Matches the upstream frontend's raw string body for postStart; may register a device. */
 export const sushiroStart = (fetchImpl: typeof fetch, entry: string): Promise<unknown> =>
   sushiroRequest(fetchImpl, '/v1/mobile/order/start', '', entry)
