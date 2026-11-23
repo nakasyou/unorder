@@ -119,6 +119,8 @@ const methods = {
       const quantity = input.quantity ?? 1
       const remaining = item.extensions?.remainingQuantity
       if (typeof remaining === 'number' && quantity > remaining) throw new ConflictError('Sushiro quantity exceeds remaining stock')
+      const maxQuantity = item.extensions?.maxQuantity
+      if (typeof maxQuantity === 'number' && quantity > maxQuantity) throw new ConflictError('Sushiro maximum orderable quantity exceeded')
       const limit = item.extensions?.orderLimit
       if (typeof limit === 'number' && limit > 0 && quantity > limit) throw new InvalidInputError('Sushiro per-item order limit exceeded')
       const defaults = item.extensions?.defaults as Record<string, unknown> | undefined
