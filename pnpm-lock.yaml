@@ -29,6 +29,9 @@ importers:
       '@unorder/saizeriya':
         specifier: workspace:*
         version: link:../provider-saizeriya
+      '@unorder/sushiro':
+        specifier: workspace:*
+        version: link:../provider-sushiro
 
   packages/core: {}
 
@@ -39,6 +42,12 @@ importers:
         version: link:../core
 
   packages/provider-saizeriya:
+    dependencies:
+      '@unorder/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/provider-sushiro:
     dependencies:
       '@unorder/core':
         specifier: workspace:*
@@ -950,10 +959,12 @@ packages:
   yuku-core@0.19.0:
     resolution: {integrity: sha512-kYK9e1XdfirNhkipzW0wmMcSWcVF/CWnuugodfVYRCUwvoBefweL9HzB96OiKEhsx78V5WbUxbJqlizMX869Qg==}
     engines: {node: '>=14.18.0'}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   yuku-parser@0.19.0:
     resolution: {integrity: sha512-XrBh9ZiQK5mJVRxZBAvD6LwRyAYrK3MFtH3+onyuxFL5hFD44EC3QOmIC1FjTj6H2MMwq46/NAI+NZxLZPZgxg==}
     engines: {node: '>=14.18.0'}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
 snapshots:
 

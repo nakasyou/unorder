@@ -17,7 +17,7 @@ and exposes every method to AI agents through a stdio MCP server.
 | `@unorder/core`      | Provider-independent domain types, schemas, errors, menu helpers, typed runtime, and Proxy client.     |
 | `@unorder/saizeriya` | Unofficial Saizeriya provider, a pinned static menu snapshot, and a small dependency-free HTML parser. |
 | `@unorder/kurasushi` | Unofficial Kurasushi EPARK provider with dynamic menus and local carts.                                |
-| `@unorder/sushiro` | Unofficial Sushiro provider for dynamic menus, local carts and guarded order submission.                |
+| `@unorder/sushiro`   | Unofficial Sushiro provider for dynamic menus, local carts and guarded order submission.               |
 | `@unorder/cli`       | The `unorder` binary (`run`, `mcp`, `providers`, `methods`, `--help`).                                 |
 
 Providers have no third-party runtime dependencies. The Saizeriya provider uses

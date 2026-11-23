@@ -4,15 +4,15 @@ Unofficial Sushiro mobile ordering provider based on an observed `mo.sushiro.jp`
 
 ## Observed API surface
 
-| Method | HTTP endpoint | Status |
-| --- | --- | --- |
-| `session.open` | `GET /v1/config?q=...`, `POST /v1/mobile/order/start`, `GET /v1/session` | Official opaque URL supported provisionally; start response not captured |
-| `menu.list`, `menu.get` | `GET /v1/menu` | Supported |
-| `cart.list`, `cart.add`, `cart.remove`, `cart.clear` | Local only | Supported |
-| `order.send` | `POST /v1/mobile/order` | Supported; requires explicit authorization |
-| `order.list` | Local state only | Supported |
-| `order.detail` | `GET /v1/mobile/order/detail` | Read-only table order detail, quantity, prices, served flag and total |
-| `session.status` | `GET /v1/session` | Read-only ordering availability, checkout status, and device count |
+| Method                                               | HTTP endpoint                                                            | Status                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `session.open`                                       | `GET /v1/config?q=...`, `POST /v1/mobile/order/start`, `GET /v1/session` | Official opaque URL supported                                         |
+| `menu.list`, `menu.get`                              | `GET /v1/menu`                                                           | Supported                                                             |
+| `cart.list`, `cart.add`, `cart.remove`, `cart.clear` | Local only                                                               | Supported                                                             |
+| `order.send`                                         | `POST /v1/mobile/order`                                                  | Supported; requires explicit authorization                            |
+| `order.list`                                         | Local state only                                                         | Supported                                                             |
+| `order.detail`                                       | `GET /v1/mobile/order/detail`                                            | Read-only table order detail, quantity, prices, served flag and total |
+| `session.status`                                     | `GET /v1/session`                                                        | Read-only ordering availability, checkout status, and device count    |
 
 ## Starting from an official QR URL
 
@@ -27,13 +27,13 @@ await sushiro.call('session.open', {
 const result = await sushiro.call('menu.list', { query: 'サーモン' })
 ```
 
-**Important:** The HAR did not capture `POST /v1/mobile/order/start` or its response. Frontend JavaScript confirms the endpoint and that the request body is the raw opaque URL value as a plain-text request body, but the response field `token` remains an **unverified assumption**. This implementation fails closed when the expected token is absent, does not retry start automatically, and validates the resulting session against the configured shop/table. Starting may register an additional device; it is not a read-only operation.
+The start endpoint has been observed returning a top-level `token` and `device_number`. The implementation fails closed when the expected token is absent, does not retry start automatically, and validates the resulting session against the configured shop/table. Starting registers an additional device; it is not a read-only operation.
 
 For backwards compatibility only, an existing authorized token may be supplied through `?token=...` to bypass the start step. This is an Unorder input convention, **not** the official Sushiro QR format. Do not log or share QR links or tokens: treat both as credentials.
 
 No cookies, redirects, or credential exports are involved in the implementation.
 
- and `/` in the raw query are preserved. `URLSearchParams` must not decode the original query before sending it to the config/start endpoints.
+`+` and `/` in the raw query are preserved. `URLSearchParams` must not decode the original query before sending it to the config/start endpoints.
 
 `menu.get` returns selectable option IDs of the form `group:index`. Selecting `optionId: '1:2'` chooses the second value in option group 1. Unspecified groups retain menu defaults. The captured order payload carries each selection as `{additional_info_index, additional_info_id}`.
 

@@ -28,9 +28,10 @@ const runMcp = async (messages: readonly unknown[]) => {
 describe('MCP server', () => {
   it('generates one tool per provider method', () => {
     const tools = createToolDefinitions()
-    expect(tools).toHaveLength(33)
+    expect(tools).toHaveLength(46)
     expect(tools.map((tool) => tool.name)).toContain('saizeriya.order.send')
     expect(tools.map((tool) => tool.name)).toContain('kurasushi.order.send')
+    expect(tools.map((tool) => tool.name)).toContain('sushiro.session.open')
     expect(
       tools.find((tool) => tool.name === 'kurasushi.menu.list')?.annotations.readOnlyHint,
     ).toBe(true)
@@ -72,7 +73,7 @@ describe('MCP server', () => {
 
     const list = messages.find((message) => message.id === 2)
     const listResult = list?.result as { tools: { name: string }[] } | undefined
-    expect(listResult?.tools).toHaveLength(33)
+    expect(listResult?.tools).toHaveLength(46)
 
     const call = messages.find((message) => message.id === 3)
     const callResult = call?.result as { content: { text: string }[] } | undefined

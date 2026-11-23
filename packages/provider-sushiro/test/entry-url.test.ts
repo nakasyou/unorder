@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { createSushiro, parseSushiroEntryURL } from '../src/index'
 
 const QR = 'ABC123+def/XYZ789+ghi/ABC123+def/XYZ789+ghi'
@@ -25,8 +25,10 @@ describe('official Sushiro opaque entry URLs', () => {
     const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const path = String(url)
       requests.push({ path, method: init?.method ?? 'GET', body: init?.body })
-      const response = path.includes('/v1/config?q=') ? config
-        : path.endsWith('/v1/mobile/order/start') ? { token: TOKEN }
+      const response = path.includes('/v1/config?q=')
+        ? config
+        : path.endsWith('/v1/mobile/order/start')
+          ? { token: TOKEN, device_number: 6 }
           : active
       return new Response(JSON.stringify(response), { status: 200 })
     }) as unknown as typeof globalThis.fetch
@@ -40,20 +42,31 @@ describe('official Sushiro opaque entry URLs', () => {
     expect(requests.every((request) => !request.path.includes('token='))).toBe(true)
   })
   it('rejects a config whose order session cannot be started without posting', async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ...config, session: { enable_cms_order: false } }), { status: 200 })) as unknown as typeof globalThis.fetch
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ...config, session: { enable_cms_order: false } }), {
+          status: 200,
+        }),
+    ) as unknown as typeof globalThis.fetch
     const p = createSushiro({ fetch })
-    await expect(p.call('session.open', { qrUrl: 'https://mo.sushiro.jp/?' + QR })).rejects.toThrow()
+    await expect(
+      p.call('session.open', { qrUrl: 'https://mo.sushiro.jp/?' + QR }),
+    ).rejects.toThrow()
     expect(fetch).toHaveBeenCalledTimes(1)
   })
   it('does not accept a token for a different table', async () => {
     const fetch = vi.fn(async (url: string | URL | Request) => {
       const path = String(url)
-      const response = path.includes('/v1/config?q=') ? config
-        : path.endsWith('/v1/mobile/order/start') ? { token: TOKEN }
+      const response = path.includes('/v1/config?q=')
+        ? config
+        : path.endsWith('/v1/mobile/order/start')
+          ? { token: TOKEN }
           : { ...active, table: { id: 999 } }
       return new Response(JSON.stringify(response), { status: 200 })
     }) as unknown as typeof globalThis.fetch
     const p = createSushiro({ fetch })
-    await expect(p.call('session.open', { qrUrl: 'https://mo.sushiro.jp/?' + QR })).rejects.toThrow('different tables')
+    await expect(p.call('session.open', { qrUrl: 'https://mo.sushiro.jp/?' + QR })).rejects.toThrow(
+      'different tables',
+    )
   })
 })

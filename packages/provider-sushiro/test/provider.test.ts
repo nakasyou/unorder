@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { createSushiro, parseSushiroMenu, parseSushiroSessionURL } from '../src/index'
 
 const TOKEN = '00000000-1111-2222-3333-444444444444'
@@ -8,28 +8,51 @@ const session = {
   table: { id: 44 },
 }
 const menu = {
-  categories: [{ name: { ja: '寿司' }, sub_categories: [{
-    name: { ja: 'にぎり' },
-    items: [
-      { id: 128, name: { ja: 'サーモン' }, price: 210, options: { '1': '1' },
-        stock_status: 0, is_shop_stopped: false, is_table_stopped: false },
-      { id: 184, name: { ja: '売切' }, price: 500, options: {},
-        stock_status: 1 },
-    ],
-  }] }],
-  option_groups: { '1': { options: {
-    '1': { code: 1, name: { ja: '普通' }, amount: 0 },
-    '2': { code: 2, name: { ja: 'ミニしゃり' }, amount: 0 },
-  } } },
+  categories: [
+    {
+      name: { ja: '寿司' },
+      sub_categories: [
+        {
+          name: { ja: 'にぎり' },
+          items: [
+            {
+              id: 128,
+              name: { ja: 'サーモン' },
+              price: 210,
+              options: { '1': '1' },
+              stock_status: 0,
+              is_shop_stopped: false,
+              is_table_stopped: false,
+            },
+            { id: 184, name: { ja: '売切' }, price: 500, options: {}, stock_status: 1 },
+          ],
+        },
+      ],
+    },
+  ],
+  option_groups: {
+    '1': {
+      options: {
+        '1': { code: 1, name: { ja: '普通' }, amount: 0 },
+        '2': { code: 2, name: { ja: 'ミニしゃり' }, amount: 0 },
+      },
+    },
+  },
 }
 const mockFetch = () => {
   const sent: { url: string; init: RequestInit }[] = []
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const path = String(url)
     sent.push({ url: path, init: init ?? {} })
-    const response = path.endsWith('/v1/session') ? session
-      : path.endsWith('/v1/menu') ? menu : { id: 99 }
-    return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } })
+    const response = path.endsWith('/v1/session')
+      ? session
+      : path.endsWith('/v1/menu')
+        ? menu
+        : { id: 99 }
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
   })
   return { fetch: fetch as unknown as typeof globalThis.fetch, sent }
 }
@@ -60,11 +83,19 @@ describe('Sushiro HAR-backed provider', () => {
     const orderCalls = sent.filter((r) => r.url.endsWith('/v1/mobile/order'))
     expect(orderCalls).toHaveLength(1)
     expect(JSON.parse(String(orderCalls[0]?.init.body))).toEqual({
-      order_items: [{ plu_id: 128, current_price: 210, qty: 1,
-        additional_info: [{ additional_info_index: 2, additional_info_id: 1 }],
-        item_discounts: { item_discounts_id: 0 } }],
+      order_items: [
+        {
+          plu_id: 128,
+          current_price: 210,
+          qty: 1,
+          additional_info: [{ additional_info_index: 2, additional_info_id: 1 }],
+          item_discounts: { item_discounts_id: 0 },
+        },
+      ],
     })
-    expect(sent.every((r) => r.init.headers && !JSON.stringify(r.init.headers).includes('Bearer '))).toBe(true)
+    expect(
+      sent.every((r) => r.init.headers && !JSON.stringify(r.init.headers).includes('Bearer ')),
+    ).toBe(true)
   })
   it('retains an unknown order and blocks resubmission after a network error', async () => {
     const { fetch } = mockFetch()

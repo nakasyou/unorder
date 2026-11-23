@@ -1,7 +1,9 @@
 import { brand, money, ProviderError } from '@unorder/core'
 import type { BillLine, MenuItemId } from '@unorder/core'
 
-interface ResponseObject { [key: string]: unknown }
+interface ResponseObject {
+  [key: string]: unknown
+}
 const object = (value: unknown): ResponseObject => {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
     throw new ProviderError('Invalid Sushiro order detail response')
@@ -36,7 +38,8 @@ export const parseSushiroOrderDetail = (raw: unknown): SushiroOrderDetail => {
   const lines = root.order_items.map((entry: unknown): SushiroOrderDetailLine => {
     const row = object(entry)
     const discount = object(row.item_discounts)
-    const discountId = discount.item_discounts_id == null ? null : integer(discount.item_discounts_id)
+    const discountId =
+      discount.item_discounts_id == null ? null : integer(discount.item_discounts_id)
     const flag = integer(row.served_flag)
     if (flag !== 0 && flag !== 1) throw new ProviderError('Unknown Sushiro served flag')
     return {
