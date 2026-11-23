@@ -6,7 +6,7 @@ import {
 } from '@unorder/core'
 import type {
   CartLine, CartLineId, MenuItem, Order, OrderId, ProviderCreateOptions,
-  ShopId, TableId,
+  ShopId, TableId, MethodDefinition,
 } from '@unorder/core'
 import { parseSushiroSessionURL, sushiroRequest } from './api'
 import { parseSushiroMenu } from './menu'
@@ -64,6 +64,8 @@ const name = (value: unknown): string => {
   return value
 }
 
+const requireSession = <Input, Output>(method: MethodDefinition<SushiroState, Config, Input, Output>): MethodDefinition<SushiroState, Config, Input, Output> => ({ ...method, session: 'required' })
+
 const methods = {
   'session.open': defineStandardMethod<'session.open', SushiroState, Config>(
     'session.open', async (ctx, input) => {
@@ -90,19 +92,19 @@ const methods = {
     }),
   'session.close': defineStandardMethod<'session.close', SushiroState, Config>(
     'session.close', (ctx) => { ctx.setState(null); return { closed: true } }),
-  'menu.list': defineStandardMethod<'menu.list', SushiroState, Config>(
+  'menu.list': requireSession(defineStandardMethod<'menu.list', SushiroState, Config>(
     'menu.list', async (ctx, input) => {
       const state = ctx.requireState()
       const items = parseSushiroMenu(await sushiroRequest(ctx.fetch, '/v1/menu', state.token))
       return listMenuItems(items, input, { kind: 'dynamic', providerId: 'sushiro' }, ctx.now().toISOString())
-    }),
-  'menu.get': defineStandardMethod<'menu.get', SushiroState, Config>(
+    })),
+  'menu.get': requireSession(defineStandardMethod<'menu.get', SushiroState, Config>(
     'menu.get', async (ctx, input): Promise<MenuItem> => {
       const state = ctx.requireState()
       const item = parseSushiroMenu(await sushiroRequest(ctx.fetch, '/v1/menu', state.token)).find((item) => item.id === input.id)
       if (!item) throw new NotFoundError('Sushiro menu item not found')
       return item
-    }),
+    })),
   'cart.list': defineStandardMethod<'cart.list', SushiroState, Config>(
     'cart.list', (ctx) => calculateCart(ctx.requireState().cart)),
   'cart.add': defineStandardMethod<'cart.add', SushiroState, Config>(
