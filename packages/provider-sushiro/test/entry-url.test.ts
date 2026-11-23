@@ -35,7 +35,7 @@ describe('official Sushiro opaque entry URLs', () => {
     expect(result.shop?.id).toBe('841')
     expect(requests.map(({ method }) => method)).toEqual(['GET', 'POST', 'GET'])
     expect(requests[0]?.path).toContain('q=' + encodeURIComponent(QR))
-    expect(requests[1]?.body).toBe(JSON.stringify(QR))
+    expect(requests[1]?.body).toBe(QR)
     expect(requests[2]?.path).toContain('/v1/session')
     expect(requests.every((request) => !request.path.includes('token='))).toBe(true)
   })
