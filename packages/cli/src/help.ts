@@ -15,6 +15,7 @@ Usage:
   unorder --version
 
 Run examples:
+  unorder run sushiro session.open '{"qrUrl":"https://mo.sushiro.jp/?token=YOUR_OWN_SESSION_TOKEN"}'
   unorder run saizeriya menu.list '{"query":"パスタ"}'
   unorder run saizeriya menu.list '{"limit":20}' --menu-file ./menu.json
   unorder run saizeriya session.open '{"qrUrl":"https://example.com/qr","peopleCount":2}'

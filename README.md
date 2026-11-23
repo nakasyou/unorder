@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > unorder is an unofficial interoperability project. It is not affiliated with,
-> endorsed by, or supported by Saizeriya, Kurasushi, or EPARK. Use it only with sessions and accounts
+> endorsed by, or supported by Saizeriya, Kurasushi, Sushiro, or EPARK. Use it only with sessions and accounts
 > you are allowed to use, and do not use it to disrupt, overload, bypass, or
 > otherwise misuse a real restaurant service.
 
@@ -17,6 +17,7 @@ and exposes every method to AI agents through a stdio MCP server.
 | `@unorder/core`      | Provider-independent domain types, schemas, errors, menu helpers, typed runtime, and Proxy client.     |
 | `@unorder/saizeriya` | Unofficial Saizeriya provider, a pinned static menu snapshot, and a small dependency-free HTML parser. |
 | `@unorder/kurasushi` | Unofficial Kurasushi EPARK provider with dynamic menus and local carts.                                |
+| `@unorder/sushiro`   | Unofficial Sushiro provider for dynamic menus, local carts and guarded order submission.               |
 | `@unorder/cli`       | The `unorder` binary (`run`, `mcp`, `providers`, `methods`, `--help`).                                 |
 
 Providers have no third-party runtime dependencies. The Saizeriya provider uses
@@ -27,6 +28,8 @@ The [Kurasushi provider](packages/provider-kurasushi/README.md) supports seated 
 sessions, dynamic menus, toppings, ordering, and table history. It is bundled in
 both CLI and MCP. See its README for the partial-order and uncertain-response
 behavior and the [protocol notes](docs/kurasushi-protocol.md) for HAR/JavaScript evidence.
+
+The [Sushiro provider](packages/provider-sushiro/README.md) supports dynamic menus and guarded order submission using an existing authorized session token. The captured frontend uses the opaque QR query via a config/start sequence; the start response was not captured, so this path remains provisional and fails closed if the assumed token field is absent.
 
 ## Requirements
 
