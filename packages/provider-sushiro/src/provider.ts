@@ -77,7 +77,10 @@ const methods = {
       let token: string
       let expectedShopId: number | undefined
       let expectedTableId: number | undefined
-      if (new URL(input.qrUrl).searchParams.has('token')) {
+      let isManualToken = false
+      try { isManualToken = new URL(input.qrUrl).searchParams.has('token') }
+      catch { throw new InvalidInputError('Invalid Sushiro session URL') }
+      if (isManualToken) {
         token = parseSushiroSessionURL(input.qrUrl)
       } else {
         const entry = parseSushiroEntryURL(input.qrUrl)
