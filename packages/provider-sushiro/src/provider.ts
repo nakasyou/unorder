@@ -8,7 +8,7 @@ import type {
   CartLine, CartLineId, MenuItem, Order, OrderId, ProviderCreateOptions,
   ShopId, TableId, MethodDefinition,
 } from '@unorder/core'
-import { parseSushiroSessionURL, sushiroRequest } from './api'
+import { parseSushiroEntryURL, parseSushiroSessionURL, sushiroConfig, sushiroStart, sushiroRequest } from './api'
 import { parseSushiroMenu } from './menu'
 import { parseSushiroOrderDetail } from './detail'
 
@@ -72,7 +72,28 @@ const methods = {
     'session.open', async (ctx, input) => {
       if (input.peopleCount !== undefined) throw new UnsupportedError('Sushiro does not support party-size changes')
       if (ctx.state) throw new ConflictError('Close the current Sushiro session first')
-      const token = parseSushiroSessionURL(input.qrUrl)
+      // Two distinct entry forms: the real opaque QR URL and a manually supplied token URL.
+      // No cookies or redirects were observed in either captured HAR.
+      let token: string
+      let expectedShopId: number | undefined
+      let expectedTableId: number | undefined
+      if (new URL(input.qrUrl).searchParams.has('token')) {
+        token = parseSushiroSessionURL(input.qrUrl)
+      } else {
+        const entry = parseSushiroEntryURL(input.qrUrl)
+        const config = record(await sushiroConfig(ctx.fetch, entry))
+        const configuration = record(config.session)
+        if (configuration.enable_cms_order !== true || configuration.is_last_order_passed === true)
+          throw new ConflictError('Sushiro QR session is not available for starting')
+        expectedShopId = integer(record(config.shop).id)
+        expectedTableId = integer(record(config.table).id)
+        // This is not a read-only operation: the upstream website starts a device session.
+        // Do not retry after an ambiguous failure; token is only trusted after validation.
+        const started = record(await sushiroStart(ctx.fetch, entry))
+        if (typeof started.token !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(started.token))
+          throw new ProviderError('Sushiro start did not provide a recognized session token')
+        token = started.token
+      }
       const response = record(await sushiroRequest(ctx.fetch, '/v1/session', token))
       const session = record(response.session)
       if (session.token !== token) throw new AuthRequiredError('Sushiro token mismatch')
@@ -81,6 +102,9 @@ const methods = {
       const shop = record(response.shop)
       const table = record(response.table)
       const shopId = integer(shop.id), tableId = integer(table.id)
+      if ((expectedShopId !== undefined && shopId !== expectedShopId) ||
+          (expectedTableId !== undefined && tableId !== expectedTableId))
+        throw new ConflictError('Sushiro QR configuration and started session refer to different tables')
       const shopName = name(shop.name)
       const openedAt = ctx.now().toISOString()
       ctx.setState({ token, shopId, tableId, shopName, openedAt, cart: [], orders: [] })
