@@ -15,7 +15,7 @@ export const parseSushiroSessionURL = (input: string): string => {
 }
 
 export const sushiroRequest = async (fetchImpl: typeof fetch, path: string, token: string, body?: unknown): Promise<unknown> => {
-  if (!/^\/v1\/(?:session|menu|mobile\/order)$/.test(path)) throw new InvalidInputError('Unsupported Sushiro endpoint')
+  if (!/^\/v1\/(?:session|menu|mobile\/order(?:\/detail)?)$/.test(path)) throw new InvalidInputError('Unsupported Sushiro endpoint')
   let response: Response
   try {
     response = await fetchImpl(ORIGIN + path, {
