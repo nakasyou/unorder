@@ -86,4 +86,35 @@ describe('read-only Sushiro table detail', () => {
     await p.call('session.open', { qrUrl: 'https://mo.sushiro.jp/?token=' + TOKEN })
     await expect(p.call('order.detail', {})).rejects.toThrow('different table')
   })
+  it('lists table items with menu names and preserves unknown products', async () => {
+    const fetch = vi.fn(async (url: string | URL | Request) => {
+      const path = String(url)
+      const body = path.endsWith('/v1/mobile/order/detail')
+        ? {
+            ...detail,
+            order_items: [...detail.order_items, { ...detail.order_items[0], plu_id: 999 }],
+          }
+        : path.endsWith('/v1/menu')
+          ? {
+              categories: [
+                {
+                  sub_categories: [{ items: [{ id: 128, name: { ja: 'サーモン' }, price: 210 }] }],
+                },
+              ],
+            }
+          : session
+      return new Response(JSON.stringify(body), { status: 200 })
+    }) as unknown as typeof globalThis.fetch
+    const p = createSushiro({ fetch })
+    await p.call('session.open', { qrUrl: 'https://mo.sushiro.jp/?token=' + TOKEN })
+    const history = await p.call('order.history', {})
+    expect(history.lines[0]).toMatchObject({
+      pluId: 128,
+      name: 'サーモン',
+      quantity: 2,
+      served: true,
+    })
+    expect(history.lines[1]).toMatchObject({ pluId: 999 })
+    expect(history.lines[1]).not.toHaveProperty('name')
+  })
 })

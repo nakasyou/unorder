@@ -11,6 +11,7 @@ Unofficial Sushiro mobile ordering provider based on an observed `mo.sushiro.jp`
 | `cart.list`, `cart.add`, `cart.remove`, `cart.clear` | Local only                                                               | Supported                                                             |
 | `order.send`                                         | `POST /v1/mobile/order`                                                  | Supported; requires explicit authorization                            |
 | `order.list`                                         | Local state only                                                         | Supported                                                             |
+| `order.history`                                      | `GET /v1/mobile/order/detail`, `GET /v1/menu`                            | Live table items with names when available                            |
 | `order.detail`                                       | `GET /v1/mobile/order/detail`                                            | Read-only table order detail, quantity, prices, served flag and total |
 | `session.status`                                     | `GET /v1/session`                                                        | Read-only ordering availability, checkout status, and device count    |
 
@@ -25,6 +26,7 @@ await sushiro.call('session.open', {
   qrUrl: 'https://mo.sushiro.jp/?YOUR_OWN_OPAQUE_QR_VALUE',
 })
 const result = await sushiro.call('menu.list', { query: 'サーモン' })
+const history = await sushiro.call('order.history', {})
 ```
 
 The start endpoint has been observed returning a top-level `token` and `device_number`. The implementation fails closed when the expected token is absent, does not retry start automatically, and validates the resulting session against the configured shop/table. Starting registers an additional device; it is not a read-only operation.
@@ -55,5 +57,6 @@ pnpm exec vp run -r pack
 - Two captured HAR files and the bundled frontend scripts were inspected; behavior can change between stores and releases.
 - Availability, discounts, and quantity constraints require further integration testing against approved non-production test infrastructure.
 - The newer HAR confirms table-level order detail, not individual order IDs or authoritative order-batch reconciliation. `order.list` remains locally tracked batches, and `order.detail` reports table-level upstream data.
+- `order.history` reads all current table items, including orders from other devices. Names come from the current menu and are omitted when a product is no longer listed; batch IDs and ordering times are not available from the detail endpoint.
 - `served_flag === 1` is interpreted as served in the normalized response; callers may inspect future versions for flag changes.
 - Checkout actions are not verified by the provided HAR and are not exposed.

@@ -447,6 +447,66 @@ const methods = {
       return response
     },
   }),
+  'order.history': defineMethod<
+    SushiroState,
+    Config,
+    Record<string, never>,
+    {
+      tableId: number
+      itemCount: number
+      total: ReturnType<typeof money>
+      lines: Array<{
+        pluId: number
+        name?: string
+        quantity: number
+        unitPrice: number
+        currentPrice: number
+        served: boolean
+        discountsId?: number
+      }>
+    }
+  >({
+    name: 'order.history',
+    summary: 'List the current table’s ordered items.',
+    description:
+      'Reads the restaurant table detail and resolves item names from the current menu. Items are not grouped into individual order batches.',
+    input: s.object({}),
+    output: s.object({
+      tableId: nonnegative,
+      itemCount: nonnegative,
+      total: s.object({ amount: nonnegative, currency: s.string({ enum: ['JPY'] }) }),
+      lines: s.array(
+        s.object({
+          pluId: nonnegative,
+          name: s.optional(s.string()),
+          quantity: nonnegative,
+          unitPrice: nonnegative,
+          currentPrice: nonnegative,
+          served: s.boolean(),
+          discountsId: s.optional(nonnegative),
+        }),
+      ),
+    }),
+    session: 'required',
+    annotations: { readOnlyHint: true },
+    async handler(ctx) {
+      const state = ctx.requireState()
+      const detail = parseSushiroOrderDetail(
+        await sushiroRequest(ctx.fetch, '/v1/mobile/order/detail', state.token),
+      )
+      if (detail.tableId !== state.tableId)
+        throw new ConflictError('Sushiro order detail belongs to a different table')
+      const menu = parseSushiroMenu(await sushiroRequest(ctx.fetch, '/v1/menu', state.token))
+      const names = new Map(menu.map((item) => [String(item.id), item.name]))
+      return {
+        ...detail,
+        lines: detail.lines.map((line) => {
+          const itemName = names.get(String(line.pluId))
+          return { ...line, ...(itemName ? { name: itemName } : {}) }
+        }),
+      }
+    },
+  }),
   'order.list': defineStandardMethod<'order.list', SushiroState, Config>(
     'order.list',
     (ctx, input) => ({
