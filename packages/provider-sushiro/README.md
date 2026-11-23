@@ -11,6 +11,8 @@ Unofficial Sushiro mobile ordering provider based on an observed `mo.sushiro.jp`
 | `cart.list`, `cart.add`, `cart.remove`, `cart.clear` | Local only | Supported |
 | `order.send` | `POST /v1/mobile/order` | Supported; requires explicit authorization |
 | `order.list` | Local state only | Supported |
+| `order.detail` | `GET /v1/mobile/order/detail` | Read-only table order detail, quantity, prices, served flag and total |
+| `session.status` | `GET /v1/session` | Read-only ordering availability, checkout status, and device count |
 
 The capture showed `GET /v1/config?q=...` and `GET /v1/session`, but did **not** show the complete QR-to-token exchange. The `q` parameter is **not** equivalent to the `Authorization` token. Consequently, this provider deliberately does **not** accept a QR `q` value as authentication. Supply an **existing, personally authorized** bearer token in a temporary input URL instead, and do not share or log it:
 
@@ -44,4 +46,6 @@ pnpm exec vp run -r pack
 
 - Only the response shapes in one observed capture were used; behavior can change between stores and releases.
 - Availability, discounts, and quantity constraints require further integration testing against approved non-production test infrastructure.
-- Order history and checkout endpoints were not verified by the provided HAR, so they are not exposed.
+- The newer HAR confirms table-level order detail, not individual order IDs or authoritative order-batch reconciliation. `order.list` remains locally tracked batches, and `order.detail` reports table-level upstream data.
+- `served_flag === 1` is interpreted as served in the normalized response; callers may inspect future versions for flag changes.
+- Checkout actions are not verified by the provided HAR and are not exposed.
