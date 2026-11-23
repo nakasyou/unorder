@@ -32,7 +32,7 @@ export const parseSushiroMenu = (raw: unknown): MenuItem[] => {
         }
         const stopped = r.is_shop_stopped === true || r.is_table_stopped === true || r.is_table_limited === true || (num(r.stock_status) ?? 0) !== 0 || r.max_orderable_quantity === 0 || r.remaining_orderable_quantity === 0
         const image = typeof r.image === 'string' && /^assets\/[\w/.-]+$/.test(r.image) ? 'https://mo.sushiro.jp/' + r.image : undefined
-        items.push({ id: brand<MenuItemId>(String(id)), name: localized(r.name), price: money(price), category: localized(s.name) || localized(c.name), tags: [], ...(image ? { imageUrl: image } : {}), ...(choices.length ? { options: choices } : {}), availability: stopped ? 'sold_out' : 'available', source: 'dynamic', extensions: { defaults: obj(r.options), orderLimit: num(r.order_limit), remainingQuantity: num(r.remaining_orderable_quantity) }, raw: { id, options: obj(r.options), discounts: array(r.discounts) } })
+        items.push({ id: brand<MenuItemId>(String(id)), name: localized(r.name), price: money(price), category: localized(s.name) || localized(c.name), tags: [], ...(image ? { imageUrl: image } : {}), ...(choices.length ? { options: choices } : {}), availability: stopped ? 'sold_out' : 'available', source: 'dynamic', extensions: { defaults: obj(r.options), orderLimit: num(r.order_limit), maxQuantity: num(r.max_orderable_quantity), remainingQuantity: num(r.remaining_orderable_quantity), unitLabel: localized(r.unit_label), servingQuantity: num(r.quantity), alcohol: r.alcohol === 1, saleCodes: array(r.sale_codes) }, raw: { id, options: obj(r.options), discounts: array(r.discounts) } })
       }
     }
   }
