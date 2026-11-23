@@ -19,7 +19,7 @@ export interface SushiroOrderDetailLine {
   readonly unitPrice: number
   readonly currentPrice: number
   readonly served: boolean
-  readonly discountsId: number | null
+  readonly discountsId?: number
 }
 
 export interface SushiroOrderDetail {
@@ -45,7 +45,7 @@ export const parseSushiroOrderDetail = (raw: unknown): SushiroOrderDetail => {
       unitPrice: integer(row.unit_price),
       currentPrice: integer(row.current_price),
       served: flag === 1,
-      discountsId: discountId,
+      ...(discountId === null ? {} : { discountsId: discountId }),
     }
   })
   return {
