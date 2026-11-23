@@ -27,7 +27,7 @@ await sushiro.call('session.open', {
 const result = await sushiro.call('menu.list', { query: 'サーモン' })
 ```
 
-**Important:** The HAR did not capture `POST /v1/mobile/order/start` or its response. Frontend JavaScript confirms the endpoint and that the request body is a JSON string containing the opaque URL value, but the response field `token` remains an **unverified assumption**. This implementation fails closed when the expected token is absent, does not retry start automatically, and validates the resulting session against the configured shop/table. Starting may register an additional device; it is not a read-only operation.
+**Important:** The HAR did not capture `POST /v1/mobile/order/start` or its response. Frontend JavaScript confirms the endpoint and that the request body is the raw opaque URL value as a plain-text request body, but the response field `token` remains an **unverified assumption**. This implementation fails closed when the expected token is absent, does not retry start automatically, and validates the resulting session against the configured shop/table. Starting may register an additional device; it is not a read-only operation.
 
 For backwards compatibility only, an existing authorized token may be supplied through `?token=...` to bypass the start step. This is an Unorder input convention, **not** the official Sushiro QR format. Do not log or share QR links or tokens: treat both as credentials.
 
