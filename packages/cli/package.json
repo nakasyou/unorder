@@ -25,6 +25,7 @@
   "dependencies": {
     "@unorder/core": "workspace:*",
     "@unorder/kurasushi": "workspace:*",
-    "@unorder/saizeriya": "workspace:*"
+    "@unorder/saizeriya": "workspace:*",
+    "@unorder/sushiro": "workspace:*"
   }
 }
