@@ -1,6 +1,6 @@
 import {
   AuthRequiredError, brand, calculateCart, ConflictError, createProviderInstance,
-  defineProvider, defineStandardMethod, InvalidInputError, listMenuItems,
+  defineProvider, defineMethod, defineStandardMethod, InvalidInputError, listMenuItems,
   money, NotFoundError, ProviderError, s, standardMethodSpecs,
   UnsupportedError, validateSchema,
 } from '@unorder/core'
@@ -10,6 +10,7 @@ import type {
 } from '@unorder/core'
 import { parseSushiroSessionURL, sushiroRequest } from './api'
 import { parseSushiroMenu } from './menu'
+import { parseSushiroOrderDetail } from './detail'
 
 interface SushiroLine extends CartLine {
   readonly additionalInfo: readonly { additional_info_index: number; additional_info_id: number }[]
@@ -199,6 +200,61 @@ const methods = {
       ctx.setState({ ...current, orders: current.orders.map((o) => o.id === pending.id ? confirmed : o) })
       return confirmed
     }),
+  'session.status': defineMethod<SushiroState, Config, Record<string, never>, {
+    shopId: number; tableId: number; shopName: string; canOrder: boolean;
+    checkedOut: boolean; paymentConfirmed: boolean; lastOrderPassed: boolean;
+    enableTableOrder: boolean; enableDeviceOrder: boolean;
+    deviceNumber: number; totalDevices: number; maxDevices: number;
+  }>({
+    name: 'session.status', summary: 'Read live Sushiro table/session status.',
+    description: 'Returns non-secret operational flags from the active Sushiro session without exposing its token.',
+    input: s.object({}),
+    output: s.object({
+      shopId: nonnegative, tableId: nonnegative, shopName: s.string(),
+      canOrder: s.boolean(), checkedOut: s.boolean(), paymentConfirmed: s.boolean(),
+      lastOrderPassed: s.boolean(), enableTableOrder: s.boolean(), enableDeviceOrder: s.boolean(),
+      deviceNumber: nonnegative, totalDevices: nonnegative, maxDevices: nonnegative,
+    }),
+    session: 'required', annotations: { readOnlyHint: true },
+    async handler(ctx) {
+      const state = ctx.requireState()
+      const response = record(await sushiroRequest(ctx.fetch, '/v1/session', state.token))
+      const session = record(response.session)
+      if (record(response.shop).id !== state.shopId || record(response.table).id !== state.tableId || session.token !== state.token)
+        throw new ConflictError('The Sushiro table session changed')
+      const flag = (value: unknown) => value === true
+      return {
+        shopId: state.shopId, tableId: state.tableId, shopName: state.shopName,
+        canOrder: flag(session.enable_order) && !flag(session.is_checked_out),
+        checkedOut: flag(session.is_checked_out), paymentConfirmed: flag(session.is_payment_confirmed),
+        lastOrderPassed: flag(session.is_last_order_passed),
+        enableTableOrder: flag(session.enable_table_order), enableDeviceOrder: flag(session.enable_device_order),
+        deviceNumber: integer(session.device_number ?? 0), totalDevices: integer(session.total_devices ?? 0),
+        maxDevices: integer(session.max_devices ?? 0),
+      }
+    },
+  }),
+  'order.detail': defineMethod<SushiroState, Config, Record<string, never>, ReturnType<typeof parseSushiroOrderDetail>>({
+    name: 'order.detail', summary: 'Read current table order items and total.',
+    description: 'Reads /v1/mobile/order/detail; includes item quantities, prices, served flags and total without placing an order.',
+    input: s.object({}),
+    output: s.object({
+      tableId: nonnegative, itemCount: nonnegative,
+      total: s.object({ amount: nonnegative, currency: s.string({ enum: ['JPY'] }) }),
+      lines: s.array(s.object({
+        pluId: nonnegative, quantity: nonnegative, unitPrice: nonnegative,
+        currentPrice: nonnegative, served: s.boolean(), discountsId: s.optional(s.integer({ minimum: 0 })),
+      })),
+    }),
+    session: 'required', annotations: { readOnlyHint: true },
+    async handler(ctx) {
+      const state = ctx.requireState()
+      const response = parseSushiroOrderDetail(await sushiroRequest(ctx.fetch, '/v1/mobile/order/detail', state.token))
+      if (response.tableId !== state.tableId)
+        throw new ConflictError('Sushiro order detail belongs to a different table')
+      return response
+    },
+  }),
   'order.list': defineStandardMethod<'order.list', SushiroState, Config>(
     'order.list', (ctx, input) => ({ orders: ctx.requireState().orders.slice().reverse().slice(0, input.limit ?? 100) })),
 }
